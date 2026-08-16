@@ -1,0 +1,21 @@
+.DS_Store
+.client-build/
+node_modules
+.pnpm-store/
+
+# Local credentials and environment overrides must never be committed.
+.env
+.env.*
+.npmrc
+*.pem
+*.key
+
+# Local build/test output. lib/ is produced by `pnpm run build` on every
+# checkout (CI builds it; npm pack runs after the build).
+lib/
+coverage/
+*.log
+*.tgz
+
+# Local visual acceptance evidence may contain workspace or conversation data.
+artifacts/

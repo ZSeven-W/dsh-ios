@@ -1,0 +1,60 @@
+name: Plugin check
+
+# Full pipeline on every PR and push to main: installs the locked
+# devDependencies (pnpm/action-setup reads the packageManager pin), builds
+# the TypeScript plugin, and runs the static smoke suites. The static smokes
+# (dev-panel-smoke, dev-card-smoke with DSH_IOS_SMOKE_SKIP_SIM=1) never boot
+# a simulator and are host-agnostic, so the full gate runs on Linux. The
+# live simulator suites boot a simulator and therefore run as a separate
+# OPTIONAL macOS job (experimental — its failure does not block the check).
+
+on:
+  pull_request:
+  push:
+    branches: ['main']
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Node 24 / build + static smokes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build
+        run: pnpm run build
+      - name: Static smoke — simulator panel (SSR only)
+        run: node scripts/dev-panel-smoke.mjs
+      - name: Static smoke — conversation cards (no simulator)
+        run: node scripts/dev-card-smoke.mjs
+        env:
+          DSH_IOS_SMOKE_SKIP_SIM: '1'
+
+  sim-smoke:
+    # Experimental: boots a real iOS simulator on the macOS runner. Marked
+    # continue-on-error so a flaky simulator boot cannot block a PR.
+    name: macOS 14 / live simulator smoke (experimental)
+    runs-on: macos-14
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build
+        run: pnpm run build
+      - name: Live simulator smoke (boots a simulator)
+        run: node scripts/dev-smoke.mjs
