@@ -1,0 +1,62 @@
+# Publish to npm when a version tag is pushed.
+#
+# No token and no one-time password: npm's trusted publishing lets this
+# workflow prove its identity to the registry over OIDC, which is why
+# `permissions.id-token` is required and why no NODE_AUTH_TOKEN appears
+# anywhere below.
+#
+# One-time setup on npmjs.com, under the package's Settings -> Trusted
+# Publisher: pick GitHub Actions, then name this repository and this file
+# (release.yml).
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  publish:
+    runs-on: macos-latest
+    permissions:
+      id-token: write   # required for trusted publishing
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+
+      # The bundled npm predates trusted publishing.
+      - run: npm install -g npm@latest
+
+      - run: pnpm install --frozen-lockfile
+
+      # The tag must match what is about to be published, or the release
+      # silently ships a version nobody asked for.
+      - name: Verify the tag matches package.json
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "tag $tag does not match package.json $pkg" >&2
+            exit 1
+          fi
+
+      - name: Build and run the fixture suites
+        run: pnpm run build && pnpm test
+        env:
+          DSH_IOS_SMOKE_SKIP_SIM: '1'
+
+      # A prerelease must never take the `latest` dist-tag: `npm install`
+      # with no version would hand it to everyone.
+      - name: Publish
+        run: |
+          pkg="$(node -p "require('./package.json').version")"
+          case "$pkg" in
+            *-*) dist_tag=next ;;
+            *)   dist_tag=latest ;;
+          esac
+          npm publish --access public --tag "$dist_tag"
