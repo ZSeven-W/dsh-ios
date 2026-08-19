@@ -91,6 +91,22 @@ export interface RawAxeNode {
   AXValue?: unknown
   frame?: unknown
   children?: unknown
+  /**
+   * Interactivity flags. `axe describe-ui` emits `enabled` as a JSON
+   * boolean (absent/null when the app reports none); it exposes NO
+   * visibility flag. The WDA normalizer passes its `enabled`/`visible`
+   * attributes through the same fields, so both backends produce the same
+   * node shape.
+   */
+  enabled?: unknown
+  visible?: unknown
+  /**
+   * Selection state. WDA's /source XML exposes `selected="true"|"false"` on
+   * picker/table rows; AXe's simulator tree has an equivalent trait. Absent
+   * stays undefined — never invented, so an absent field keeps meaning
+   * "unknown" and the tree stays small (WP60).
+   */
+  selected?: unknown
   // Sanitized-shape aliases: makes re-sanitization of an already-sanitized
   // node idempotent (synthetic trees and cached payloads).
   label?: unknown
@@ -106,6 +122,19 @@ export interface AxeElement {
   label?: string
   identifier?: string
   value?: string
+  /**
+   * Interactivity flags, when the backend reports them (WDA carries both
+   * per element; AXe only `enabled`). Absent stays `undefined` — never
+   * invented.
+   */
+  enabled?: boolean
+  visible?: boolean
+  /**
+   * Selection state, when the backend reports it (WDA's `selected`
+   * attribute, AXe's equivalent trait). Absent stays `undefined` — never
+   * invented, so an absent field means "unknown" and the tree stays small.
+   */
+  selected?: boolean
   frame: { x: number; y: number; w: number; h: number }
   children: AxeElement[]
 }
@@ -338,7 +367,14 @@ export function execAxe(
 }
 
 function finiteNumber(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  // Normalize NEGATIVE ZERO. AXe reports off-screen-left frames as `-0`, and
+  // `JSON.parse('-0')` preserves it while `JSON.stringify(-0)` writes `0` —
+  // so a tree carrying one is not losslessly serializable and DSH rejects the
+  // ENTIRE tool result ("value is not lossless JSON"). Seen in a real session:
+  // 4 of 7 ios_sim_ui_tree calls died on three `frame.x: -0` deep in the
+  // Calendar hierarchy. `value === 0` is true for -0, so this flattens both.
+  return value === 0 ? 0 : value
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -378,6 +414,14 @@ export function sanitizeAxeNode(raw: RawAxeNode): AxeElement {
   if (label !== undefined) node.label = label
   if (identifier !== undefined) node.identifier = identifier
   if (value !== undefined) node.value = value
+  // Boolean flags only: AXe emits `enabled` true/false (or null/absent),
+  // WDA's normalizer passes its "true"/"false" attributes already parsed.
+  // Anything else is treated as unreported, never guessed.
+  if (typeof raw.enabled === 'boolean') node.enabled = raw.enabled
+  if (typeof raw.visible === 'boolean') node.visible = raw.visible
+  // Same rule as enabled/visible: a boolean from the backend is the fact; an
+  // absent/other value is "unreported" and the field stays off the node.
+  if (typeof raw.selected === 'boolean') node.selected = raw.selected
   return node
 }
 

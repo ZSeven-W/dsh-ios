@@ -13,6 +13,17 @@
  * landscape orientation the panel auto-widens to a comfortable device-sized
  * width — restoring the user's portrait width when the device rotates back,
  * and never fighting a manual drag made during the landscape stint.
+ *
+ * Device switch: the panel's picker calls back through `onDeviceSwitched`;
+ * the surface replaces the open request with a capsule-style synthetic
+ * sim-stream source (`simSwitchedPanelRequestOf`, SAME request identity so
+ * the mounted panel — and its size/frame/orientation state — survives the
+ * swap) via `store.replaceOpen`, and keeps the panel-source registry entry
+ * in sync so reopening stays on the new device. Auto-follow lives INSIDE
+ * the panel (see sim-panel.tsx / sim-panel-follow.ts): the surface passes
+ * the open request's `sessionId` down so the panel can scan the source
+ * registry for the session's newest settled result and re-target to that
+ * result's device.
  */
 
 import { useCallback, useEffect, useId, useLayoutEffect, useReducer, useRef, useState, useSyncExternalStore } from 'react'
@@ -22,6 +33,9 @@ import type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
 import { SimulatorPanel, type SimPanelDisplayReport } from './sim-panel.js'
 import { simCopy } from './copy.js'
 import { claimSimulatorPanelDock, type SimulatorPanelDockLease } from './sim-panel-dock.js'
+import { registerSimPanelSource } from './sim-panel-trigger.js'
+import { simSwitchedStreamMetaOf, SIM_DEVICE_PICKER_KEYFRAMES } from './sim-device-picker.js'
+import type { SimSwitchResponse } from './protocol.js'
 import {
   SIM_PANEL_FALLBACK_LOGICAL_HEIGHT,
   SIM_PANEL_FALLBACK_LOGICAL_WIDTH,
@@ -43,6 +57,36 @@ export function simulatorPanelRequestKey(request: SimulatorPanelRequest): string
   return `${request.sessionId}\n${request.callId}\n${request.toolName}`
 }
 
+/**
+ * Synthetic panel request for a switched device — the capsule-style source:
+ * SAME session/call/tool identity (so the panel's request key — and the
+ * mounted panel itself — never change: size/frame/orientation state and the
+ * in-flight seeded grant survive the swap), but the block carries the new
+ * device's `sim-stream` meta, so panel meta follows the switch. The panel
+ * host replaces the open store request AND the source-registry entry with
+ * this, so closing/reopening (or a row click) stays on the new device.
+ */
+export function simSwitchedPanelRequestOf(
+  request: SimulatorPanelRequest,
+  result: SimSwitchResponse,
+): SimulatorPanelRequest {
+  const block: ToolCallBlock = {
+    kind: 'tool-result',
+    seq: 1,
+    time: Date.now(),
+    callId: request.callId,
+    call: { name: request.toolName, argsRaw: '{}' },
+    callTime: Date.now(),
+    content: [],
+    isError: false,
+    callView: null,
+    resultView: null,
+    subCalls: [],
+    meta: simSwitchedStreamMetaOf(result),
+  }
+  return { ...request, block }
+}
+
 type Listener = () => void
 
 export interface SimulatorPanelStore {
@@ -55,6 +99,10 @@ export interface SimulatorPanelStore {
   setFrameStyle: (style: SimFrameStyle) => void
   subscribe: (listener: Listener) => () => void
   open: (request: SimulatorPanelRequest) => boolean
+  /** Replace the OPEN request in place (device switch): same identity key,
+   * new block — the mounted panel stays mounted and its meta follows. No-op
+   * (false) while the panel is closed. */
+  replaceOpen: (request: SimulatorPanelRequest) => boolean
   close: () => void
 }
 
@@ -84,6 +132,12 @@ export function createSimulatorPanelStore(): SimulatorPanelStore {
       return () => { listeners.delete(listener) }
     },
     open(request) {
+      current = request
+      emit()
+      return true
+    },
+    replaceOpen(request) {
+      if (current === undefined) return false
       current = request
       emit()
       return true
@@ -120,6 +174,12 @@ export interface SimulatorPanelHostOptions {
 
 export interface SimulatorPanelHost {
   open: (request: SimulatorPanelRequest) => boolean
+  /**
+   * Open only while the panel is CLOSED (the auto-open path): an already-open
+   * panel is never replaced, mirroring openpencil's `openIfIdle`. The store
+   * snapshot is the single source of truth for open/closed — no second flag.
+   */
+  openIfIdle: (request: SimulatorPanelRequest) => boolean
   close: () => void
   dispose: () => void
 }
@@ -363,6 +423,7 @@ const surfaceStyles: Record<string, CSSProperties> = {
 
 interface SimulatorPanelSurfaceProps {
   request: SimulatorPanelRequest
+  store: SimulatorPanelStore
   colorScheme: 'light' | 'dark'
   locale: string
   sizeMode: SimPanelSizeMode
@@ -378,6 +439,7 @@ interface SimulatorPanelSurfaceProps {
  */
 function SimulatorPanelSurface({
   request,
+  store,
   colorScheme,
   locale,
   sizeMode,
@@ -409,6 +471,22 @@ function SimulatorPanelSurface({
       naturalHeight: display.naturalHeight,
     })
   }, [])
+
+  // The panel already adopted the switched device (synthetic meta + seeded
+  // grant); make the open request AND the panel-source registry entry follow
+  // it. The request identity (session/call/tool) is preserved, so the
+  // mounted panel — its size/frame/orientation state and the in-flight
+  // seeded grant — survives the swap without a remount.
+  const handleDeviceSwitched = useCallback((result: SimSwitchResponse): void => {
+    const next = simSwitchedPanelRequestOf(request, result)
+    store.replaceOpen(next)
+    registerSimPanelSource({
+      sessionId: next.sessionId,
+      callId: next.callId,
+      toolName: next.toolName,
+      block: next.block,
+    })
+  }, [request, store])
 
   useEffect(() => {
     const onResize = (): void => { setViewportWidth(window.innerWidth) }
@@ -509,6 +587,7 @@ function SimulatorPanelSurface({
       key={simulatorPanelRequestKey(request)}
       toolName={request.toolName}
       block={request.block}
+      sessionId={request.sessionId}
       colorScheme={colorScheme}
       locale={locale === 'zh' ? 'zh' : 'en'}
       onClose={onClose}
@@ -517,6 +596,7 @@ function SimulatorPanelSurface({
       frameStyle={frameStyle}
       onFrameStyleChange={onFrameStyleChange}
       onDisplayChange={handleDisplayChange}
+      onDeviceSwitched={handleDeviceSwitched}
     />
   )
 
@@ -593,6 +673,7 @@ function SimulatorPanelHostView({
   return (
     <SimulatorPanelSurface
       request={request}
+      store={store}
       colorScheme={colorScheme}
       locale={locale}
       sizeMode={sizeMode}
@@ -618,6 +699,12 @@ export function mountSimulatorPanelHost(options: SimulatorPanelHostOptions): Sim
   const container = ownerDocument.createElement('div')
   container.dataset.simulatorPanelHost = hostId
   ownerDocument.body.append(container)
+  // The plugin's one stylesheet contribution: the device-picker spinner
+  // keyframes (inline style objects cannot carry @keyframes).
+  const style = ownerDocument.createElement('style')
+  style.dataset.dshIosPanelKeyframes = 'true'
+  style.textContent = SIM_DEVICE_PICKER_KEYFRAMES
+  ownerDocument.head.append(style)
   let root: Root | undefined = createRoot(container)
   let destroyed = false
   // Shared with the input-dock capsule: it reads the open state to hide
@@ -633,6 +720,7 @@ export function mountSimulatorPanelHost(options: SimulatorPanelHostOptions): Sim
     root?.unmount()
     root = undefined
     container.remove()
+    style.remove()
   }
 
   root.render(
@@ -649,6 +737,10 @@ export function mountSimulatorPanelHost(options: SimulatorPanelHostOptions): Sim
   return {
     open(request) {
       if (destroyed) return false
+      return store.open(request)
+    },
+    openIfIdle(request) {
+      if (destroyed || store.getSnapshot() !== undefined) return false
       return store.open(request)
     },
     close() {

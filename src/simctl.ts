@@ -38,6 +38,7 @@ const SIMCTL_SCREENSHOT_TIMEOUT_MS = 60_000
 const SIMCTL_INSTALL_TIMEOUT_MS = 180_000
 const SIMCTL_LAUNCH_TIMEOUT_MS = 60_000
 const SIMCTL_CONTAINER_TIMEOUT_MS = 30_000
+const SIMCTL_LISTAPPS_TIMEOUT_MS = 60_000
 const SIMCTL_TERMINATE_TIMEOUT_MS = 30_000
 const SIMCTL_UNINSTALL_TIMEOUT_MS = 60_000
 const SIMCTL_MAX_BUFFER_BYTES = 16 * 1024 * 1024
@@ -198,6 +199,18 @@ export async function getAppContainer(udid: string, bundleId: string, signal?: A
   const path = stdout.trim()
   if (path === '') throw new SimctlError(`simctl get_app_container returned no path for ${bundleId}`, stdout)
   return path
+}
+
+/**
+ * Raw `simctl listapps <udid>` stdout — one OLD-STYLE plist keyed by bundle id
+ * (parsed in app-list.ts, which is also where the CJK \Uxxxx escaping lives).
+ * A device that is not booted makes simctl exit non-zero, which surfaces as a
+ * SimctlError: the app-listing tool must fail loudly there, because an empty
+ * listing and a failed one meant the same thing to the model once and cost a
+ * whole session (WP57).
+ */
+export async function listAppsPlist(udid: string, signal?: AbortSignal): Promise<string> {
+  return execSimctl(['listapps', udid], SIMCTL_LISTAPPS_TIMEOUT_MS, signal)
 }
 
 /** Terminate a running app; resolves `simctl terminate` stdout (contains the pid). */

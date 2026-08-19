@@ -25,6 +25,7 @@ import {
   type PreviewStopResult,
 } from './preview-host.js'
 import type { SimHostController } from './sim-host.js'
+import { matchesRealDevice } from './devicectl.js'
 
 /** Registered tool names, in registration order. */
 export const IOS_PREVIEW_TOOL_NAMES = ['ios_sim_preview'] as const
@@ -180,6 +181,9 @@ export function createSimPreviewTools(host: SimHostController, options: SimPrevi
       const action = args.action ?? 'start'
       if (action === 'status') return controller.status()
       if (action === 'stop') return controller.stop(exec.signal)
+      if (args.udid !== undefined && args.udid.trim() !== '' && await matchesRealDevice(args.udid, exec.signal)) {
+        throw new Error(`ios_sim_preview: "${args.udid.trim()}" is a physical iOS device — SwiftUI preview hot reload runs on simulators only; for a physical device use ios_sim_build_run to build, install and launch the app`)
+      }
       if (args.packagePath === undefined || args.packagePath.trim() === '') {
         throw new Error('ios_sim_preview: action "start" requires packagePath — an absolute path to a Swift package directory (contains Package.swift)')
       }

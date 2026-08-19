@@ -34,7 +34,6 @@
 import { useSyncExternalStore } from 'react'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
-import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
@@ -42,10 +41,11 @@ import { SimCardBoundary } from './card-boundary.js'
 import { SimStreamCard, type SimCardOptions } from './sim-stream-card.js'
 import { SimScreenshotCard } from './sim-screenshot-card.js'
 import { SimBuildRunCard } from './sim-build-run-card.js'
+import { SimRealStartCard } from './sim-real-start-card.js'
 import { IOS_SIM_CARD_TOOLS } from './protocol.js'
 import { SimulatorDetailsPanel } from './sim-panel.js'
 import { mountSimulatorPanelHost, type SimulatorPanelHost } from './sim-panel-host.js'
-import { installSimPanelRowTrigger } from './sim-panel-trigger.js'
+import { installSimPanelRowTrigger, type SimulatorPanelSource } from './sim-panel-trigger.js'
 import { SimStatusCapsule } from './sim-status-capsule.js'
 import type { CompatibleToolDetailsViewProps } from './details-compat.js'
 
@@ -56,6 +56,7 @@ export { SimCardBoundary } from './card-boundary.js'
 export { SimStreamCard, simCardChrome, type SimCardOptions } from './sim-stream-card.js'
 export { SimScreenshotCard } from './sim-screenshot-card.js'
 export { SimBuildRunCard } from './sim-build-run-card.js'
+export { SimRealStartCard } from './sim-real-start-card.js'
 export { simCopy, formatBytes, type SimLocale } from './copy.js'
 export { simResultSummaryOf, simResultTextOf, type SimResultSummary } from './sim-result.js'
 export {
@@ -64,11 +65,55 @@ export {
   type ResolvedSimMeta,
   type SimMetaSource,
 } from './sim-meta-hydrate.js'
-export { useSimStream, type SimStreamPhase, type SimStreamSession } from './sim-stream-session.js'
+export { useSimStream, SIM_SWITCH_SETTLE_INTERVAL_MS, SIM_SWITCH_SETTLE_ATTEMPTS, type SimSeededGrant, type SimStreamPhase, type SimStreamSession } from './sim-stream-session.js'
+export {
+  useSimRealSession,
+  SIM_REAL_DRAG_MOVE_SAMPLE_MS,
+  SIM_REAL_READY_RECHECK_INTERVAL_MS,
+  SIM_REAL_START_POLL_INTERVAL_MS,
+  SIM_REAL_START_POLL_CAP_MS,
+  SIM_REAL_START_TERMINAL_REASONS,
+  type SimRealSession,
+  type SimRealSessionOptions,
+  type SimRealSessionPhase,
+} from './sim-real-session.js'
 export { useSimScreenshot, type SimScreenshotPhase, type SimScreenshotSession } from './sim-screenshot-session.js'
 export { SimLiveFrame, SimLiveFrameBody, type SimLiveFrameSessionState } from './sim-live-frame.js'
 export {
+  SimSelect,
+  SimSelectMenu,
+  SIM_SELECT_STYLES,
+  SIM_SELECT_ACTIVE_BG,
+  SIM_SELECT_HOVER_BG,
+  SIM_SELECT_MARKER_COLORS,
+  type SimSelectGroup,
+  type SimSelectOption,
+  type SimSelectProps,
+} from './sim-select.js'
+export {
+  createSimDeviceSwitchController,
+  simDeviceGroupsOf,
+  simDeviceSelectGroupsOf,
+  simRealDeviceUdidOf,
+  REAL_DEVICE_VALUE_PREFIX,
+  simRuntimeLabelOf,
+  simSwitchedStreamMetaOf,
+  SimDevicePicker,
+  SimDevicePickerBody,
+  SIM_DEVICE_PICKER_KEYFRAMES,
+  SIM_DEVICE_PICKER_STYLES,
+  type SimDeviceGroup,
+  type SimDevicePickerBodyProps,
+  type SimDevicePickerProps,
+  type SimDeviceSwitchController,
+  type SimDeviceSwitchControllerOptions,
+} from './sim-device-picker.js'
+export {
   SimLiveIndicator,
+  SimRealDevicePanel,
+  SimFollowIndicator,
+  REAL_DEVICE_STYLES,
+  SIM_FOLLOW_INDICATOR_STYLES,
   SimPhoneFrame,
   SimScreenshotFrame,
   SimScreenshotFrameBody,
@@ -106,6 +151,15 @@ export {
   type SimFrameStyle,
 } from './sim-frame-style.js'
 export {
+  SIM_DEVICE_MENU_ACTIONS,
+  SIM_DEVICE_MENU_ICON_PATHS,
+  SIM_DEVICE_MENU_REAL_ACTIONS,
+  SIM_DEVICE_MENU_STYLES,
+  SimDeviceMenu,
+  simDeviceActionLabelOf,
+  type SimDeviceMenuAction,
+} from './sim-device-menu.js'
+export {
   SIM_TOOLBAR_ACTION_IDS,
   SIM_TOOLBAR_ICON_PATHS,
   SIM_TOOLBAR_STYLES,
@@ -135,6 +189,7 @@ export {
   simulatorPanelWidthBounds,
   simulatorPanelWidthStateInitial,
   simulatorPanelWidthStateNext,
+  simSwitchedPanelRequestOf,
   SIMULATOR_PANEL_DEFAULT_WIDTH,
   SIMULATOR_PANEL_FULLSCREEN_BREAKPOINT,
   SIMULATOR_PANEL_LANDSCAPE_HEIGHT_PX,
@@ -155,12 +210,36 @@ export {
   hasSimPanelSourceForSession,
   simPanelClickIsInteractive,
   simPanelClickRowCallIdOf,
+  simPanelSourcesSnapshot,
   simPanelSourcesVersion,
   subscribeSimPanelSources,
   useSimPanelSource,
   SIM_PANEL_INTERACTIVE_SELECTOR,
   type SimulatorPanelSource,
 } from './sim-panel-trigger.js'
+export {
+  SIM_PANEL_AUTO_OPEN_TOOLS,
+  forgetSimPanelAutoOpenCall,
+  rememberSimPanelAutoOpenCall,
+  simPanelAutoOpenActivatedAt,
+  simPanelAutoOpenKey,
+  simPanelAutoOpenShouldOpen,
+  takeSimPanelAutoOpenCall,
+  type SimPanelAutoOpenDecision,
+} from './sim-panel-auto-open.js'
+export {
+  SIM_PANEL_FOLLOW_DEBOUNCE_MS,
+  simFollowNewestCandidateOf,
+  simFollowStateInitial,
+  simFollowStateNext,
+  simFollowTargetOf,
+  type SimFollowAction,
+  type SimFollowCandidate,
+  type SimFollowDecision,
+  type SimFollowPending,
+  type SimFollowState,
+  type SimFollowTarget,
+} from './sim-panel-follow.js'
 export {
   SIM_PANEL_DEVICE_SCALE,
   SIM_PANEL_FALLBACK_LOGICAL_WIDTH,
@@ -240,6 +319,7 @@ function getLocaleOf(ctx: ClientContext): () => string {
 function hostSyncedCard(
   ctx: ClientContext,
   Card: SimCardComponent,
+  autoOpen?: (source: SimulatorPanelSource) => void,
 ): (props: ToolCallViewProps) => React.JSX.Element {
   const subscribeTheme = subscribeThemeOf(ctx)
   const getColorScheme = getColorSchemeOf(ctx)
@@ -251,7 +331,7 @@ function hostSyncedCard(
     const locale = useSyncExternalStore(subscribeLocale, getLocale, getLocale)
     return (
       <SimCardBoundary>
-        <Card {...props} colorScheme={colorScheme} locale={locale} />
+        <Card {...props} colorScheme={colorScheme} locale={locale} autoOpen={autoOpen} />
       </SimCardBoundary>
     )
   }
@@ -259,10 +339,15 @@ function hostSyncedCard(
 }
 
 /** Register one `tool.call.toolview` slot per tool name (openpencil shape). */
-function registerCard(ctx: ClientContext, toolName: string, Card: SimCardComponent): void {
+function registerCard(
+  ctx: ClientContext,
+  toolName: string,
+  Card: SimCardComponent,
+  autoOpen?: (source: SimulatorPanelSource) => void,
+): void {
   ctx.slots.inject('tool.call.toolview', () => ctx.slots.register(
     { name: 'tool.call.toolview', key: toolName },
-    hostSyncedCard(ctx, Card),
+    hostSyncedCard(ctx, Card, autoOpen),
   ))
 }
 
@@ -305,12 +390,17 @@ function hostSyncedDetailsPanel(
   return HostSyncedDetailsPanel
 }
 
+/** Cross-version minimum for the session-scoped input-dock seat. */
+interface CompatibleInputDockProps {
+  sessionId: string
+}
+
 function hostSyncedStatusCapsule(
   ctx: ClientContext,
-): (props: PropsRuntime<'conversation.input.dock'>) => React.JSX.Element {
+): (props: CompatibleInputDockProps) => React.JSX.Element {
   const subscribeLocale = subscribeLocaleOf(ctx)
   const getLocale = getLocaleOf(ctx)
-  const HostSyncedStatusCapsule = (props: PropsRuntime<'conversation.input.dock'>): React.JSX.Element => {
+  const HostSyncedStatusCapsule = (props: CompatibleInputDockProps): React.JSX.Element => {
     const locale = useSyncExternalStore(subscribeLocale, getLocale, getLocale)
     // The dock seat is session-scoped: the framework-resolved sessionId is
     // the capsule's gate — it renders/polls only while THIS session has
@@ -329,16 +419,25 @@ const PANEL_TOOLS = [
 
 /** Register canonical views plus the resident simulator panel surfaces. */
 export function apply(ctx: ClientContext): void {
-  registerCard(ctx, IOS_SIM_CARD_TOOLS.boot, SimStreamCard)
-  registerCard(ctx, IOS_SIM_CARD_TOOLS.screenshot, SimScreenshotCard)
-  registerCard(ctx, IOS_SIM_CARD_TOOLS.interact, SimScreenshotCard)
-  registerCard(ctx, IOS_SIM_CARD_TOOLS.buildRun, SimBuildRunCard)
-
   // rc.6 fallback surface: a page-owned right panel host (openpencil's
   // fallback-workbench mechanism) opened by clicking a simulator tool row.
+  // Declared up front so the START cards can be handed the auto-open callback
+  // that resolves through it.
   let panelHost: SimulatorPanelHost | undefined
   let rowTriggerDispose: (() => void) | undefined
   const detailsSlotDeclared = (): boolean => ctx.slots.spec('tool.details.toolview') !== undefined
+
+  // Auto-open: a settled START verb opens the panel once. openIfIdle (not
+  // open) so a settle never replaces an already-open panel.
+  const autoOpenSource = (source: SimulatorPanelSource): void => {
+    panelHost?.openIfIdle(source)
+  }
+
+  registerCard(ctx, IOS_SIM_CARD_TOOLS.boot, SimStreamCard, autoOpenSource)
+  registerCard(ctx, IOS_SIM_CARD_TOOLS.screenshot, SimScreenshotCard)
+  registerCard(ctx, IOS_SIM_CARD_TOOLS.interact, SimScreenshotCard)
+  registerCard(ctx, IOS_SIM_CARD_TOOLS.buildRun, SimBuildRunCard)
+  registerCard(ctx, IOS_SIM_CARD_TOOLS.realStart, SimRealStartCard, autoOpenSource)
 
   const stepFallbackAside = (): (() => void) => {
     rowTriggerDispose?.()

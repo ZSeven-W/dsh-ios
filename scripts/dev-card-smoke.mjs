@@ -21,6 +21,18 @@
  * (403), non-JSON bodies (415) and wrong methods (405), and neither route
  * ever starts a stream, boots a simulator or mints tokens.
  *
+ * Part A.6 — real-device route fences (no phone, WDA never started): mounts
+ * the real-device routes with a fresh WdaController whose WDA is DOWN and
+ * asserts the grant/control/status fences — 403 without Origin / with a
+ * DNS-rebinding Host, 405 for wrong methods, 415 for non-JSON bodies, coded
+ * 400 for unknown control actions and out-of-range coordinates, coded 409
+ * `wda_not_running` for a valid control/grant while WDA is down, coded 503
+ * `wda_not_running` for a VALIDLY-signed real-stream token while WDA is
+ * down, the read-only `{running:false, ready:false}` status shape, and that
+ * nothing was ever launched, acquired or minted. Also asserts the host-side
+ * WDA orientation vocabulary bridges (display mapping, clockwise rotate
+ * cycle, failure-reason → error-code classification).
+ *
  * Part B — live-ish (no browser): reuses the dev-routes-smoke server
  * pattern — boot an iPhone, mount the real signed routes on a mini node:http
  * server, then simulates exactly what the cards do imperatively, calling the
@@ -49,6 +61,7 @@ const { SimHostController } = await import(join(root, 'lib', 'sim-host.js'))
 const { listDevices, bootDevice, shutdownDevice, bootedDevices } = await import(join(root, 'lib', 'simctl.js'))
 const {
   CAPTURE_ROUTE_PATH,
+  GRANT_ROUTE_PATH,
   SCREENSHOT_ROUTE_PREFIX,
   STATUS_ROUTE_PATH,
   STREAM_ROUTE_PREFIX,
@@ -1025,6 +1038,313 @@ try {
   } catch { /* server already closed */ }
   try {
     await statusController?.dispose()
+  } catch { /* already disposed */ }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Part A.6 — real-device route fences (mini http server, NO phone, WDA down)
+// ═════════════════════════════════════════════════════════════════════════════
+console.log('— part A.6: real-device grant/control/status route fences (no device) —')
+let wdaController
+let realMini
+let realDispose
+let realRoutes
+
+try {
+  const { WdaController } = await import(join(root, 'lib', 'wda-host.js'))
+  const {
+    REAL_CONTROL_ROUTE_PATH,
+    REAL_DEVICE_STATUS_ROUTE_PATH,
+    REAL_STREAM_ROUTE_PREFIX,
+    displayOrientationFromWda,
+    nextWdaOrientation,
+    wdaReasonErrorCodeOf,
+  } = await import(join(root, 'lib', 'stream-routes.js'))
+  const REAL_SMOKE_UDID = 'REAL-SMOKE-UDID'
+  const REAL_ACTION = { kind: 'tap', x: 0.5, y: 0.5 }
+
+  wdaController = new WdaController()
+  realMini = createMiniWebServer()
+  realRoutes = new StreamRoutes(new SimHostController(), new StreamAccessController(), wdaController)
+  realDispose = mountStreamRoutes(realMini, realRoutes)
+  await new Promise(resolveListen => realMini.server.listen(0, '127.0.0.1', resolveListen))
+  const realPort = realMini.server.address().port
+  const realOrigin = `http://127.0.0.1:${realPort}`
+  step('mount the real-device routes on a mini http server (WDA never started)', true, `127.0.0.1:${realPort}`)
+
+  // ── /real-control fences ──────────────────────────────────────────────────
+  const controlBody = JSON.stringify({ device: REAL_SMOKE_UDID, action: REAL_ACTION })
+  const controlNoOrigin = await rawRequest({
+    port: realPort,
+    path: REAL_CONTROL_ROUTE_PATH,
+    headers: { 'content-type': 'application/json' },
+    body: controlBody,
+  })
+  step(
+    'real-control without an Origin → 403 (same fence as /grant)',
+    controlNoOrigin.status === 403,
+    `HTTP ${controlNoOrigin.status}`,
+  )
+  const controlRebinding = await rawRequest({
+    port: realPort,
+    path: REAL_CONTROL_ROUTE_PATH,
+    headers: { 'content-type': 'application/json', host: 'evil.example', origin: 'http://evil.example' },
+    body: controlBody,
+  })
+  step(
+    'real-control rejects a DNS-rebinding Host → 403',
+    controlRebinding.status === 403,
+    `HTTP ${controlRebinding.status}`,
+  )
+  const controlGet = await rawRequest({
+    port: realPort,
+    path: REAL_CONTROL_ROUTE_PATH,
+    method: 'GET',
+    headers: { origin: realOrigin },
+  })
+  step(
+    'real-control only accepts POST → 405',
+    controlGet.status === 405,
+    `HTTP ${controlGet.status}`,
+  )
+  const controlNotJson = await rawRequest({
+    port: realPort,
+    path: REAL_CONTROL_ROUTE_PATH,
+    headers: { origin: realOrigin },
+    body: 'not-json',
+  })
+  step(
+    'real-control requires an application/json body → 415',
+    controlNotJson.status === 415,
+    `HTTP ${controlNotJson.status}`,
+  )
+  const controlUnknown = await rawRequest({
+    port: realPort,
+    path: REAL_CONTROL_ROUTE_PATH,
+    headers: { 'content-type': 'application/json', origin: realOrigin },
+    body: JSON.stringify({ device: REAL_SMOKE_UDID, action: { kind: 'hover' } }),
+  })
+  step(
+    'real-control rejects an unknown action → coded 400',
+    controlUnknown.status === 400 && controlUnknown.body.includes('"code":"bad_request"'),
+    `HTTP ${controlUnknown.status} ${controlUnknown.body}`,
+  )
+  const controlBadCoords = await rawRequest({
+    port: realPort,
+    path: REAL_CONTROL_ROUTE_PATH,
+    headers: { 'content-type': 'application/json', origin: realOrigin },
+    body: JSON.stringify({ device: REAL_SMOKE_UDID, action: { kind: 'tap', x: 7, y: 0.5 } }),
+  })
+  step(
+    'real-control rejects out-of-range tap coordinates → coded 400',
+    controlBadCoords.status === 400 && controlBadCoords.body.includes('"code":"bad_request"'),
+    `HTTP ${controlBadCoords.status}`,
+  )
+  const controlBadDevice = await rawRequest({
+    port: realPort,
+    path: REAL_CONTROL_ROUTE_PATH,
+    headers: { 'content-type': 'application/json', origin: realOrigin },
+    body: JSON.stringify({ device: 123, action: REAL_ACTION }),
+  })
+  step(
+    'real-control rejects a non-udid device → coded 400',
+    controlBadDevice.status === 400,
+    `HTTP ${controlBadDevice.status}`,
+  )
+  const controlWdaDown = await rawRequest({
+    port: realPort,
+    path: REAL_CONTROL_ROUTE_PATH,
+    headers: { 'content-type': 'application/json', origin: realOrigin },
+    body: controlBody,
+  })
+  step(
+    'real-control with WDA down → coded 409 wda_not_running (never starts anything)',
+    controlWdaDown.status === 409 && controlWdaDown.body.includes('"code":"wda_not_running"'),
+    `HTTP ${controlWdaDown.status} ${controlWdaDown.body}`,
+  )
+
+  // ── real grant fence (WDA down → coded 409, no boot/build) ────────────────
+  const grantWdaDown = await rawRequest({
+    port: realPort,
+    path: GRANT_ROUTE_PATH,
+    headers: { 'content-type': 'application/json', origin: realOrigin },
+    body: JSON.stringify({ kind: 'real-stream', device: REAL_SMOKE_UDID }),
+  })
+  step(
+    'grant {kind:"real-stream"} with WDA down → coded 409 wda_not_running',
+    grantWdaDown.status === 409 && grantWdaDown.body.includes('"code":"wda_not_running"'),
+    `HTTP ${grantWdaDown.status} ${grantWdaDown.body}`,
+  )
+  const grantWdaBad = await rawRequest({
+    port: realPort,
+    path: GRANT_ROUTE_PATH,
+    headers: { 'content-type': 'application/json', origin: realOrigin },
+    body: JSON.stringify({ kind: 'real-stream', device: 'not a udid!' }),
+  })
+  step(
+    'real grant rejects a malformed device udid → 400',
+    grantWdaBad.status === 400,
+    `HTTP ${grantWdaBad.status}`,
+  )
+
+  // ── /real-device-status contract (read-only) ──────────────────────────────
+  const realStatusEmpty = await rawRequest({
+    port: realPort,
+    path: REAL_DEVICE_STATUS_ROUTE_PATH,
+    headers: { 'content-type': 'application/json', origin: realOrigin },
+    body: '{}',
+  })
+  step(
+    'real-device-status {} → 200 { running:false, ready:false } with WDA down',
+    realStatusEmpty.status === 200
+      && realStatusEmpty.body.includes('"running":false')
+      && realStatusEmpty.body.includes('"ready":false')
+      && !realStatusEmpty.body.includes('streamUrl')
+      && !realStatusEmpty.body.includes('token'),
+    `HTTP ${realStatusEmpty.status} ${realStatusEmpty.body}`,
+  )
+  const realStatusNoOrigin = await rawRequest({
+    port: realPort,
+    path: REAL_DEVICE_STATUS_ROUTE_PATH,
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  })
+  step(
+    'real-device-status without an Origin → 403',
+    realStatusNoOrigin.status === 403,
+    `HTTP ${realStatusNoOrigin.status}`,
+  )
+  const realStatusGet = await rawRequest({
+    port: realPort,
+    path: REAL_DEVICE_STATUS_ROUTE_PATH,
+    method: 'GET',
+    headers: { origin: realOrigin },
+  })
+  step(
+    'real-device-status only accepts POST → 405',
+    realStatusGet.status === 405,
+    `HTTP ${realStatusGet.status}`,
+  )
+  const realStatusNotJson = await rawRequest({
+    port: realPort,
+    path: REAL_DEVICE_STATUS_ROUTE_PATH,
+    headers: { origin: realOrigin },
+    body: 'not-json',
+  })
+  step(
+    'real-device-status requires an application/json body → 415',
+    realStatusNotJson.status === 415,
+    `HTTP ${realStatusNotJson.status}`,
+  )
+
+  // ── /real-stream token plumbing without a device ──────────────────────────
+  const realStreamBadToken = await rawRequest({
+    port: realPort,
+    path: `${REAL_STREAM_ROUTE_PREFIX}/not.a-valid-token`,
+    method: 'GET',
+    headers: { origin: realOrigin },
+  })
+  step(
+    'real-stream rejects an invalid token → 403',
+    realStreamBadToken.status === 403,
+    `HTTP ${realStreamBadToken.status}`,
+  )
+  const signedReal = await realRoutes.access.signRealStreamToken(REAL_SMOKE_UDID, { ttlMs: 60_000 })
+  step(
+    'sim-real-stream tokens are signed and expire within 10 minutes',
+    typeof signedReal.token === 'string'
+      && signedReal.token.includes('.')
+      && signedReal.expiresAt > Date.now()
+      && signedReal.expiresAt - Date.now() <= 10 * 60 * 1000,
+    `token=${signedReal.token.slice(0, 24)}… expiresAt=${signedReal.expiresAt}`,
+  )
+  const realStreamWdaDown = await rawRequest({
+    port: realPort,
+    path: `${REAL_STREAM_ROUTE_PREFIX}/${signedReal.token}`,
+    method: 'GET',
+    headers: { origin: realOrigin },
+  })
+  step(
+    'real-stream with a VALID token but WDA down → coded 503 wda_not_running',
+    realStreamWdaDown.status === 503 && realStreamWdaDown.body.includes('"code":"wda_not_running"'),
+    `HTTP ${realStreamWdaDown.status} ${realStreamWdaDown.body}`,
+  )
+  const realStreamRebinding = await rawRequest({
+    port: realPort,
+    path: `${REAL_STREAM_ROUTE_PREFIX}/${signedReal.token}`,
+    method: 'GET',
+    headers: { host: 'evil.example', origin: 'http://evil.example' },
+  })
+  step(
+    'real-stream rejects a DNS-rebinding Host → 403 (same fence as the sim stream)',
+    realStreamRebinding.status === 403,
+    `HTTP ${realStreamRebinding.status}`,
+  )
+  const realStreamPost = await rawRequest({
+    port: realPort,
+    path: `${REAL_STREAM_ROUTE_PREFIX}/${signedReal.token}`,
+    method: 'POST',
+    headers: { origin: realOrigin },
+  })
+  step(
+    'real-stream only accepts GET → 405',
+    realStreamPost.status === 405,
+    `HTTP ${realStreamPost.status}`,
+  )
+  step(
+    'real-device fences are non-invasive: no WDA launch, no consumers, no tokens leaked',
+    wdaController.status().running === false
+      && wdaController.status().consumers === 0
+      && !realStatusEmpty.body.includes('screenshotUrl')
+      && !realStatusEmpty.body.includes('streamUrl'),
+    `running=${wdaController.status().running} consumers=${wdaController.status().consumers}`,
+  )
+
+  // ── orientation vocabulary bridges (host side) ────────────────────────────
+  step(
+    'WDA orientation values map onto the panel display vocabulary',
+    displayOrientationFromWda('PORTRAIT') === 'portrait'
+      && displayOrientationFromWda('LANDSCAPELEFT') === 'landscape_left'
+      && displayOrientationFromWda('LANDSCAPERIGHT') === 'landscape_right'
+      && displayOrientationFromWda('PORTRAIT_UPSIDEDOWN') === 'portrait_upside_down'
+      && displayOrientationFromWda('weird') === 'portrait',
+    'WDA /orientation → serve-sim rotation set',
+  )
+  step(
+    'WDA rotate cycle advances clockwise like serve-sim',
+    nextWdaOrientation('PORTRAIT') === 'LANDSCAPELEFT'
+      && nextWdaOrientation('LANDSCAPELEFT') === 'PORTRAIT_UPSIDEDOWN'
+      && nextWdaOrientation('PORTRAIT_UPSIDEDOWN') === 'LANDSCAPERIGHT'
+      && nextWdaOrientation('LANDSCAPERIGHT') === 'PORTRAIT'
+      && nextWdaOrientation(undefined) === 'PORTRAIT',
+    'PORTRAIT → LANDSCAPELEFT → PORTRAIT_UPSIDEDOWN → LANDSCAPERIGHT',
+  )
+  step(
+    'wdaReasonErrorCodeOf classifies every WDA failure reason',
+    wdaReasonErrorCodeOf({ running: false, reason: 'device-locked' }) === 'wda_device_locked'
+      && wdaReasonErrorCodeOf({ running: false, reason: 'cert-untrusted' }) === 'wda_cert_untrusted'
+      && wdaReasonErrorCodeOf({ running: false, reason: 'profile-expired' }) === 'wda_profile_expired'
+      && wdaReasonErrorCodeOf({ running: false, reason: 'device-unplugged' }) === 'wda_device_unplugged'
+      && wdaReasonErrorCodeOf({ running: false, reason: 'build-failed' }) === 'wda_build_failed'
+      && wdaReasonErrorCodeOf({ running: false, reason: 'launch-timeout' }) === 'wda_launch_timeout'
+      && wdaReasonErrorCodeOf({ running: false, reason: 'tunnel-failed' }) === 'wda_tunnel_failed'
+      && wdaReasonErrorCodeOf({ running: false, reason: 'wda-not-ready' }) === 'wda_not_ready'
+      && wdaReasonErrorCodeOf({ running: false, reason: 'unavailable' }) === 'wda_unavailable'
+      && wdaReasonErrorCodeOf({ running: false }) === 'wda_not_running',
+    'reason → SimRouteErrorCode',
+  )
+} catch (error) {
+  step('real-device route smoke completed without uncaught errors', false, error instanceof Error ? error.message : String(error))
+  console.error(error)
+} finally {
+  try {
+    realDispose?.()
+  } catch { /* already disposed */ }
+  try {
+    await new Promise(resolveClose => realMini?.server?.close(resolveClose))
+  } catch { /* server already closed */ }
+  try {
+    await wdaController?.dispose()
   } catch { /* already disposed */ }
 }
 

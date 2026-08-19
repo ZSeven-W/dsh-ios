@@ -50,15 +50,63 @@
  * network. The same body renders inside the plugin-owned right panel host
  * (rc.6 fallback surface) and inside the per-tool `tool.details.toolview`
  * seat when a future DSH runtime declares it.
+ *
+ * Device switch: in stream, real-device and screenshot mode the header's
+ * static device subtitle is replaced by a token-styled device picker (see
+ * sim-device-picker.tsx); only a meta-less 'unavailable' panel keeps it.
+ * Picking another device POSTs `/_dsh/dsh-ios/switch-device`, shows the
+ * transitional 切换中… state while the old stream closes and the capability
+ * the route returns is seeded into the stream session, then swaps the meta
+ * to the new device (`simSwitchedStreamMetaOf`); the panel host replaces the
+ * open request/source in place so the store and registry follow. Size,
+ * frame and orientation state are untouched by the switch.
+ *
+ * Real devices are LIVE now: picking a physical phone activates the real
+ * session (see sim-real-session.ts) — `/real-device-status` first (why WDA
+ * is down: locked / untrusted / expired / unplugged), then a `real-stream`
+ * grant, then the SAME SimLiveFrameBody stream surface the simulator uses
+ * (phone frame, size modes, frame styles and the orientation
+ * counter-rotation all apply), with the toolbar back for Home / Screenshot
+ * (WDA capture through /capture) / Rotate (WDA orientation) / Refresh.
+ * Pointer events POST `/real-control` (no ws for WDA — see the drag
+ * coalescing note in sim-real-session.ts). While WDA is not running the
+ * panel keeps the info surface: the localized reason + actionable hint,
+ * a 启动 WebDriverAgent / Start WebDriverAgent primary button (POSTs
+ * `/real-start` — the ONE route allowed to build/launch WDA — then shows a
+ * progress state "首次构建可能需要几分钟 / first build can take minutes"
+ * driven by a bounded ~3 s status poll until ready or a terminal failure)
+ * and a 重试 button that only re-checks the status — no unbounded polling,
+ * no infinite spin.
+ *
+ * Auto-follow: while the panel is open (and the host passed its sessionId),
+ * the panel scans the source registry for the NEWEST settled tool result of
+ * the session and re-targets to that result's device — a simulator re-target
+ * reuses the switch/grant path, a real udid activates real-device mode
+ * (live view when WDA is ready, the not-ready surface otherwise). The
+ * follow/override lifecycle is a pure state machine (sim-panel-follow.ts):
+ * the newest target must be stable for SIM_PANEL_FOLLOW_DEBOUNCE_MS before
+ * the panel moves (no ping-pong between two devices), a manual pick from
+ * the header picker sets the user-override flag for the rest of the panel
+ * session, the small 自动跟随/Auto-follow header pill offers a one-click
+ * 恢复跟随/Resume following, and no decision fires while a switch is in
+ * flight. A udid the host cannot address at all (unknown or unavailable)
+ * is never followed.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore } from 'react'
 import type { CSSProperties, ReactNode, RefObject } from 'react'
 import type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
 import { simCopy, type SimCopy, type SimLocale } from './copy.js'
 import {
   IOS_SIM_CARD_TOOLS,
+  postDeviceAction,
+  requestSimDevices,
+  simRouteErrorTextOf,
+  requestSimStatus,
+  simRealDeviceReady,
   type SimDeviceInfo,
+  type SimRealDeviceEntry,
+  type SimRealDeviceStatus,
   type SimFetcher,
   type SimScreenshotMeta,
   type SimStreamMeta,
@@ -67,8 +115,18 @@ import {
 import { resolveSimMeta } from './sim-meta-hydrate.js'
 import { SimLiveFrameBody } from './sim-live-frame.js'
 import { useSimScreenshot } from './sim-screenshot-session.js'
-import { useSimStream } from './sim-stream-session.js'
+import { useSimStream, type SimSeededGrant } from './sim-stream-session.js'
+import { useSimRealSession } from './sim-real-session.js'
 import { useSimCapture, type SimCapturePhase } from './sim-panel-capture.js'
+import {
+  createSimDeviceSwitchController,
+  simRealDeviceUdidOf,
+  simSwitchedStreamMetaOf,
+  SimDevicePicker,
+  type SimDeviceSwitchController,
+} from './sim-device-picker.js'
+import { SimSelect } from './sim-select.js'
+import type { SimSwitchResponse } from './protocol.js'
 import type { CompatibleToolDetailsViewProps } from './details-compat.js'
 import {
   CARD_STYLES,
@@ -104,10 +162,26 @@ import {
   type SimFrameStyle,
 } from './sim-frame-style.js'
 import {
+  SimDeviceMenu,
+  type SimDeviceMenuAction,
+} from './sim-device-menu.js'
+import {
   SIM_TOOLBAR_STYLES,
   SimSizeQuickSegment,
   SimToolbarIconButton,
 } from './sim-toolbar.js'
+import {
+  simFollowNewestCandidateOf,
+  simFollowStateInitial,
+  simFollowStateNext,
+  simFollowTargetOf,
+  type SimFollowState,
+} from './sim-panel-follow.js'
+import {
+  simPanelSourcesSnapshot,
+  simPanelSourcesVersion,
+  subscribeSimPanelSources,
+} from './sim-panel-trigger.js'
 
 /**
  * Panel chrome styles over the DSH theme tokens openpencil's editor panel
@@ -125,20 +199,29 @@ export const PANEL_STYLES: Record<string, CSSProperties> = {
     background: 'var(--dsw-alias-bg-base)',
     fontFamily: 'inherit',
   },
+  // Single-row header that only wraps under pressure: title, device picker
+  // and the two controls share one flex line while the panel is wide enough;
+  // `flexWrap` sends the controls to further lines as the panel narrows
+  // (user call: 空间够的时候仍然一行，挤压的时候才换行). The close button is
+  // absolutely pinned top-right so wrapping never moves it.
   header: {
+    position: 'relative',
     display: 'flex',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 8,
+    rowGap: 6,
+    minWidth: 0,
     flex: 'none',
-    padding: '10px 12px',
+    padding: '10px 40px 10px 12px',
     borderBottom: '1px solid var(--dsw-alias-border-l2)',
   },
   titleCluster: {
     minWidth: 0,
-    marginRight: 'auto',
+    flex: 'none',
     display: 'flex',
-    flexDirection: 'column',
-    gap: 2,
+    alignItems: 'center',
+    gap: 8,
     overflow: 'hidden',
   },
   title: {
@@ -161,6 +244,7 @@ export const PANEL_STYLES: Record<string, CSSProperties> = {
     flex: 'none',
     display: 'inline-flex',
     alignItems: 'center',
+    minWidth: 80,
   },
   sizeSelect: {
     maxWidth: 108,
@@ -174,6 +258,8 @@ export const PANEL_STYLES: Record<string, CSSProperties> = {
     font: 'inherit',
     fontSize: 12,
     lineHeight: 1.4,
+    minWidth: 70,
+    width: '100%',
   },
   frameStyleControl: {
     flex: 'none',
@@ -182,6 +268,7 @@ export const PANEL_STYLES: Record<string, CSSProperties> = {
     overflow: 'hidden',
     borderRadius: 6,
     border: '1px solid var(--dsw-alias-border-l2)',
+    minWidth: 90,
   },
   frameStyleButton: {
     flex: 'none',
@@ -206,6 +293,9 @@ export const PANEL_STYLES: Record<string, CSSProperties> = {
     fontWeight: 600,
   },
   closeButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
     flex: 'none',
     width: 26,
     height: 26,
@@ -218,8 +308,7 @@ export const PANEL_STYLES: Record<string, CSSProperties> = {
     background: 'var(--dsw-alias-bg-layer-1)',
     cursor: 'pointer',
     font: 'inherit',
-    fontSize: 16,
-    lineHeight: 1,
+    lineHeight: 0,
     padding: 0,
   },
   stage: {
@@ -662,7 +751,93 @@ export function SimLiveIndicator({ open, locale }: { open: boolean; locale: SimL
   )
 }
 
-export type SimPanelMode = 'stream' | 'screenshot' | 'unavailable'
+/**
+ * Auto-follow header styles — the same compact token pill language as the
+ * picker's switching/error readouts. Only the live-green dot keeps a literal
+ * state color (the panel-wide live-dot convention).
+ */
+export const SIM_FOLLOW_INDICATOR_STYLES: Record<string, CSSProperties> = {
+  root: {
+    flex: 'none',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 5,
+    minHeight: 22,
+    padding: '1px 8px',
+    borderRadius: 99,
+    border: '1px solid var(--dsw-alias-border-l2)',
+    background: 'var(--dsw-alias-bg-layer-1)',
+    color: 'var(--dsw-alias-label-secondary)',
+    font: 'inherit',
+    fontSize: 12,
+    lineHeight: '16px',
+    whiteSpace: 'nowrap',
+    cursor: 'default',
+  },
+  /** The live-green dot only — auto-follow is on (same state color as Live). */
+  dot: {
+    flex: 'none',
+    width: 7,
+    height: 7,
+    borderRadius: '50%',
+    background: '#22c55e',
+    boxShadow: '0 0 6px rgba(34,197,94,0.7)',
+  },
+  /** The overridden pill is the one-click resume button. */
+  resume: {
+    cursor: 'pointer',
+    color: 'var(--dsw-alias-label-primary)',
+    fontWeight: 600,
+  },
+}
+
+/**
+ * The small auto-follow header indicator: while following is active a muted
+ * 自动跟随/Auto-follow pill with the live-green dot; after a manual pick it
+ * becomes the one-click 恢复跟随/Resume following button — visible AND
+ * reversible. Pure presentation, SSR-safe.
+ */
+export function SimFollowIndicator({
+  overridden,
+  locale,
+  onResume,
+}: {
+  overridden: boolean
+  locale: SimLocale
+  onResume?: () => void
+}): React.JSX.Element {
+  const copy = simCopy(locale)
+  if (!overridden) {
+    return (
+      <span
+        style={SIM_FOLLOW_INDICATOR_STYLES.root}
+        role="status"
+        title={copy.followHint}
+        data-sim-follow-indicator="true"
+        data-sim-follow-state="active"
+      >
+        <span style={SIM_FOLLOW_INDICATOR_STYLES.dot} aria-hidden="true" data-sim-follow-dot="true" />
+        <span>{copy.followActive}</span>
+      </span>
+    )
+  }
+  return (
+    <button
+      type="button"
+      style={{ ...SIM_FOLLOW_INDICATOR_STYLES.root, ...SIM_FOLLOW_INDICATOR_STYLES.resume }}
+      title={copy.followHint}
+      aria-label={copy.followResume}
+      onClick={onResume}
+      data-sim-follow-indicator="true"
+      data-sim-follow-state="overridden"
+      data-sim-follow-resume="true"
+    >
+      <span>{copy.followResume}</span>
+    </button>
+  )
+}
+
+export type SimPanelMode = 'stream' | 'screenshot' | 'real-device' | 'unavailable'
 
 /** aria-label for one quick-size button (full copy per size, both locales). */
 function simQuickSizeAriaLabel(id: string, copy: SimCopy): string {
@@ -678,6 +853,12 @@ function simQuickSizeAriaLabel(id: string, copy: SimCopy): string {
 export interface SimulatorPanelBodyProps {
   title: string
   device: SimDeviceInfo | undefined
+  /** Header device picker (stream mode). When present it replaces the static
+   * device-name subtitle; other modes keep the `device · udid` line. */
+  devicePicker?: ReactNode
+  /** Small auto-follow pill rendered next to the picker/subtitle
+   * (SimFollowIndicator — active vs overridden + one-click resume). */
+  followIndicator?: ReactNode
   mode: SimPanelMode
   liveOpen: boolean
   colorScheme: 'light' | 'dark'
@@ -704,11 +885,20 @@ export interface SimulatorPanelBodyProps {
   /** Toolbar actions — each button renders only when its handler is present
    * (Home/Rotate/Refresh are stream-session actions; Screenshot both modes). */
   onHome?: () => void
+  /** Runs one device action (App Switcher, lock, …); absent hides the menu. */
+  onDeviceAction?: (action: SimDeviceMenuAction) => Promise<void> | void
+  /** True when the panel targets a phone (the menu greys the sim-only rows). */
+  deviceMenuReal?: boolean
   onRotate?: () => void
   onScreenshot?: () => void
   onRefresh?: () => void
   /** Screenshot capture confirmation state (busy/done toast in the toolbar). */
   captureState?: SimCapturePhase
+  /** Real-device LIVE flag: when a physical device's WDA stream is up, the
+   * panel renders the FULL stream chrome (size modes, frame styles, toolbar,
+   * phone frame) exactly like stream mode. While WDA is not ready the
+   * real-device mode keeps the bare info surface. Ignored for other modes. */
+  streaming?: boolean
 }
 
 /** Pure panel chrome: header (device name + udid + size-mode dropdown +
@@ -718,12 +908,14 @@ export interface SimulatorPanelBodyProps {
 export function SimulatorPanelBody({
   title,
   device,
+  devicePicker,
   mode,
   liveOpen,
   colorScheme,
   locale,
   onClose,
   children,
+  followIndicator,
   sizeMode = SIM_PANEL_SIZE_MODE_FIT,
   naturalWidth,
   naturalHeight,
@@ -732,15 +924,22 @@ export function SimulatorPanelBody({
   frameStyle = SIM_FRAME_STYLE_BEZEL,
   onFrameStyleChange,
   onHome,
+  onDeviceAction,
+  deviceMenuReal = false,
   onRotate,
   onScreenshot,
   onRefresh,
   captureState = 'idle',
+  streaming = false,
 }: SimulatorPanelBodyProps): React.JSX.Element {
   const copy = simCopy(locale)
   const deviceParts = [device?.name, device?.udid].filter((part): part is string => part !== undefined && part !== '')
   const deviceLabel = deviceParts.join(' · ')
   const activeSizeModeId = simPanelSizeModeIdOf(sizeMode)
+  // Stream chrome (size/frame controls, toolbar, phone frame, Live dot) is
+  // every mode's own except a NOT-live real-device panel: a live real-device
+  // panel adopts all of it too, while its not-ready info surface renders bare.
+  const streamChrome = mode === 'real-device' ? streaming : true
   return (
     <section
       style={PANEL_STYLES.root}
@@ -753,53 +952,62 @@ export function SimulatorPanelBody({
       <div style={PANEL_STYLES.header} data-sim-panel-header="true">
         <div style={PANEL_STYLES.titleCluster}>
           <span style={PANEL_STYLES.title}>{title}</span>
-          {deviceLabel !== '' ? <span style={PANEL_STYLES.subtitle}>{deviceLabel}</span> : null}
         </div>
+        {devicePicker !== undefined
+          ? devicePicker
+          : deviceLabel !== ''
+            ? <span style={PANEL_STYLES.subtitle}>{deviceLabel}</span>
+            : null}
+        {followIndicator}
+        {!streamChrome ? null : (
         <div style={PANEL_STYLES.sizeControl}>
-          <select
-            style={PANEL_STYLES.sizeSelect}
+          <SimSelect
             value={activeSizeModeId}
-            onChange={event => { onSizeModeChange?.(simPanelSizeModeOf(event.currentTarget.value)) }}
-            aria-label={copy.sizeMode}
-            title={copy.sizeMode}
-            data-sim-panel-size-mode="true"
-          >
-            {SIM_PANEL_SIZE_OPTIONS.map(option => (
-              <option key={option.id} value={option.id}>
-                {locale === 'zh' ? option.labelZh : option.labelEn}
-              </option>
-            ))}
-          </select>
+            groups={[{
+              id: 'size-modes',
+              options: SIM_PANEL_SIZE_OPTIONS.map(option => ({
+                value: option.id,
+                label: locale === 'zh' ? option.labelZh : option.labelEn,
+              })),
+            }]}
+            onChange={id => { onSizeModeChange?.(simPanelSizeModeOf(id)) }}
+            ariaLabel={copy.sizeMode}
+            triggerStyle={PANEL_STYLES.sizeSelect}
+            dataAttrs={{ 'data-sim-panel-size-mode': 'true' }}
+          />
         </div>
+        )}
+        {!streamChrome ? null : (
         <div
           style={PANEL_STYLES.frameStyleControl}
-          role="group"
-          aria-label={copy.frameStyle}
-          title={copy.frameStyle}
-          data-sim-frame-style-control="true"
-        >
-          {SIM_FRAME_STYLE_OPTIONS.map(id => {
-            const active = frameStyle === id
-            const label = simFrameStyleLabelOf(id, copy)
-            return (
-              <button
-                key={id}
-                type="button"
-                style={active
-                  ? { ...PANEL_STYLES.frameStyleButton, ...PANEL_STYLES.frameStyleButtonActive }
-                  : PANEL_STYLES.frameStyleButton}
-                aria-pressed={active}
-                aria-label={`${copy.frameStyle}: ${label}`}
-                title={`${copy.frameStyle}: ${label}`}
-                data-sim-frame-style={id}
-                data-sim-frame-style-active={active ? 'true' : 'false'}
-                onClick={() => { onFrameStyleChange?.(id) }}
-              >
-                {label}
-              </button>
-            )
-          })}
+            role="group"
+            aria-label={copy.frameStyle}
+            title={copy.frameStyle}
+            data-sim-frame-style-control="true"
+          >
+            {SIM_FRAME_STYLE_OPTIONS.map(id => {
+              const active = frameStyle === id
+              const label = simFrameStyleLabelOf(id, copy)
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  style={active
+                    ? { ...PANEL_STYLES.frameStyleButton, ...PANEL_STYLES.frameStyleButtonActive }
+                    : PANEL_STYLES.frameStyleButton}
+                  aria-pressed={active}
+                  aria-label={`${copy.frameStyle}: ${label}`}
+                  title={`${copy.frameStyle}: ${label}`}
+                  data-sim-frame-style={id}
+                  data-sim-frame-style-active={active ? 'true' : 'false'}
+                  onClick={() => { onFrameStyleChange?.(id) }}
+                >
+                  {label}
+                </button>
+              )
+            })}
         </div>
+        )}
         {onClose !== undefined ? (
           <button
             type="button"
@@ -808,10 +1016,27 @@ export function SimulatorPanelBody({
             aria-label={copy.closePanel}
             data-sim-panel-close="true"
           >
-            ×
+            {/* An inline SVG rather than the × glyph: the character's optical
+                center sits above the line box's center, so flex centering
+                left it visibly high inside the button. */}
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              aria-hidden="true"
+              data-sim-panel-close-icon="true"
+              style={{ display: 'block' }}
+            >
+              <path d="M4 4 L12 12 M12 4 L4 12" />
+            </svg>
           </button>
         ) : null}
       </div>
+      {!streamChrome ? null : (
       <div
         style={PANEL_STYLES.toolbar}
         data-sim-panel-toolbar="true"
@@ -837,7 +1062,18 @@ export function SimulatorPanelBody({
         <span style={PANEL_STYLES.toolbarDivider} aria-hidden="true" data-sim-toolbar-divider="true" />
         <div style={SIM_TOOLBAR_STYLES.actionPill} data-sim-toolbar-actions="true">
           {onHome !== undefined ? (
-            <SimToolbarIconButton action="home" label={copy.home} onClick={onHome} />
+            <SimToolbarIconButton
+              action="home"
+              label={onDeviceAction === undefined ? copy.home : copy.homeHint}
+              onClick={onHome}
+              {...(onDeviceAction === undefined
+                ? {}
+                // Home fires on the FIRST click of a double-click too, on
+                // purpose: debouncing it would cost every single press ~250 ms
+                // of dead time to serve the rarer gesture, and "home, then the
+                // app list" is exactly where a double-click lands anyway.
+                : { onDoubleClick: () => { void onDeviceAction('app-switcher') } })}
+            />
           ) : null}
           {onScreenshot !== undefined ? (
             <SimToolbarIconButton action="screenshot" label={copy.screenshot} onClick={onScreenshot} />
@@ -853,23 +1089,219 @@ export function SimulatorPanelBody({
           {onRefresh !== undefined ? (
             <SimToolbarIconButton action="refresh" label={copy.refresh} onClick={onRefresh} />
           ) : null}
+          {onDeviceAction !== undefined ? (
+            <SimDeviceMenu
+              copy={copy}
+              realDevice={deviceMenuReal}
+              onAction={onDeviceAction}
+            />
+          ) : null}
         </div>
       </div>
+      )}
       <div style={PANEL_STYLES.stage} data-sim-panel-stage="true">
-        <SimPhoneFrame
-          sizeMode={sizeMode}
-          naturalWidth={naturalWidth}
-          naturalHeight={naturalHeight}
-          orientation={orientation}
-          frameStyle={frameStyle}
-        >
-          {children}
-        </SimPhoneFrame>
+        {/* A LIVE physical device renders inside the same phone frame as the
+            simulator stream (it is a real stream now); only the not-ready
+            info surface renders bare. */}
+        {!streamChrome ? children : (
+          <SimPhoneFrame
+            sizeMode={sizeMode}
+            naturalWidth={naturalWidth}
+            naturalHeight={naturalHeight}
+            orientation={orientation}
+            frameStyle={frameStyle}
+          >
+            {children}
+          </SimPhoneFrame>
+        )}
       </div>
-      {/* The ● Live / Offline readout only makes sense for the live stream
-          mode; screenshot-mode panels hide it entirely (WP8 leftover). */}
-      {mode === 'stream' ? <SimLiveIndicator open={liveOpen} locale={locale} /> : null}
+      {/* The ● Live / Offline readout only makes sense for a live stream
+          (simulator or a live real device); screenshot/not-ready panels
+          hide it entirely. */}
+      {mode === 'stream' || (mode === 'real-device' && streaming)
+        ? <SimLiveIndicator open={liveOpen} locale={locale} />
+        : null}
     </section>
+  )
+}
+
+/** Styles for the real-device info surface. */
+export const REAL_DEVICE_STYLES: Record<string, CSSProperties> = {
+  root: {
+    flex: 1,
+    minHeight: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    padding: '24px 20px',
+    textAlign: 'center',
+    color: 'var(--dsw-alias-label-primary)',
+  },
+  name: { fontSize: 15, lineHeight: '20px', fontWeight: 600 },
+  detail: { fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-secondary)' },
+  note: {
+    maxWidth: 320,
+    fontSize: 12,
+    lineHeight: '18px',
+    color: 'var(--dsw-alias-label-secondary)',
+  },
+  /** 启动 WebDriverAgent (primary) next to 重试 (secondary re-check). */
+  actions: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  udidRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '4px 10px',
+    borderRadius: 8,
+    border: '1px solid var(--dsw-alias-border-l2)',
+    background: 'var(--dsw-alias-bg-layer-1)',
+    fontSize: 11,
+    lineHeight: '16px',
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+    maxWidth: '100%',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+}
+
+export interface SimRealDevicePanelProps {
+  device: SimRealDeviceEntry
+  locale: SimLocale
+  /** Latest WDA status snapshot; absent → the base device info only. */
+  status?: SimRealDeviceStatus
+  /** Localized, actionable reason text for the not-ready state. */
+  failure?: string
+  /** Host-side detail line (English) rendered muted under the reason. */
+  failureDetail?: string
+  /**
+   * Start button (启动 WebDriverAgent / Start WebDriverAgent) — the explicit
+   * user gesture POSTed to /real-start, the ONE route allowed to
+   * build/launch WDA. Rendered next to 重试 on the not-ready surface.
+   */
+  onStart?: () => void
+  /** Re-check button (重试/Retry) — the pure status re-check, never starts. */
+  onRetry?: () => void
+  /**
+   * True → render the start-progress surface (a cold build can take
+   * minutes) instead of reason + actions; the poll drives the transition.
+   */
+  starting?: boolean
+  /** Optional extra line during the progress state (e.g. the lock hint). */
+  startHint?: string
+}
+
+/**
+ * Real-device info surface. A phone whose WDA is not running/ready renders
+ * here instead of a dead player: what the device is (model · iOS · state,
+ * udid) plus WHY the live view is down — the localized reason from
+ * `/real-device-status` (locked / untrusted / expired / unplugged / …), the
+ * host's detail line, an actionable hint, a 启动 WebDriverAgent primary
+ * button (the explicit start gesture → /real-start) and a 重试 button that
+ * re-checks the status only. While a start is in flight the same surface
+ * switches to the progress state (首次构建可能需要几分钟 / first build can
+ * take minutes) and the session's bounded poll drives the transition —
+ * ready hands the live frame over, a terminal failure returns here with
+ * the localized reason and both actions. While the WDA stream IS live the
+ * panel never mounts this surface — it renders the phone-frame stream
+ * instead.
+ */
+export function SimRealDevicePanel({
+  device,
+  locale,
+  status,
+  failure,
+  failureDetail,
+  onStart,
+  onRetry,
+  starting = false,
+  startHint,
+}: SimRealDevicePanelProps): React.JSX.Element {
+  const copy = simCopy(locale)
+  const ready = simRealDeviceReady(device)
+  const detail = [
+    device.model,
+    device.osVersion === undefined ? undefined : `iOS ${device.osVersion}`,
+    ready ? copy.realDeviceConnected : copy.realDeviceUnavailable,
+  ].filter(part => part !== undefined && part !== '').join(' · ')
+  if (starting) {
+    return (
+      <div
+        style={REAL_DEVICE_STYLES.root}
+        data-sim-real-device-panel={device.udid}
+        data-sim-real-device-starting="true"
+      >
+        <span style={REAL_DEVICE_STYLES.name}>{device.name}</span>
+        <span style={REAL_DEVICE_STYLES.detail} data-sim-real-device-detail="true">{detail}</span>
+        <span style={REAL_DEVICE_STYLES.note} role="status" data-sim-real-device-start-progress="true">
+          {copy.realStartProgress}
+        </span>
+        {startHint !== undefined && startHint !== '' ? (
+          <span style={REAL_DEVICE_STYLES.detail} data-sim-real-device-start-hint="true">{startHint}</span>
+        ) : null}
+        <span style={REAL_DEVICE_STYLES.udidRow} title={device.udid}>
+          <span style={{ color: 'var(--dsw-alias-label-secondary)' }}>{copy.realDeviceUdid}</span>
+          <span data-sim-real-device-udid="true">{device.udid}</span>
+        </span>
+      </div>
+    )
+  }
+  const reason = failure ?? copy.realDeviceNotRunning
+  return (
+    <div style={REAL_DEVICE_STYLES.root} data-sim-real-device-panel={device.udid}>
+      <span style={REAL_DEVICE_STYLES.name}>{device.name}</span>
+      <span style={REAL_DEVICE_STYLES.detail} data-sim-real-device-detail="true">{detail}</span>
+      <span style={REAL_DEVICE_STYLES.note} data-sim-real-device-note="true">{copy.realDeviceNoStream}</span>
+      <span style={REAL_DEVICE_STYLES.udidRow} title={device.udid}>
+        <span style={{ color: 'var(--dsw-alias-label-secondary)' }}>{copy.realDeviceUdid}</span>
+        <span data-sim-real-device-udid="true">{device.udid}</span>
+      </span>
+      {status !== undefined && status.ready === false ? (
+        <span style={REAL_DEVICE_STYLES.detail} role="status" data-sim-real-device-reason="true">
+          {reason}
+        </span>
+      ) : null}
+      {status !== undefined && status.ready === false && failureDetail !== undefined && failureDetail !== '' ? (
+        <span style={REAL_DEVICE_STYLES.detail} data-sim-real-device-host-detail="true">
+          {failureDetail}
+        </span>
+      ) : null}
+      {status !== undefined && status.ready === false ? (
+        <span style={REAL_DEVICE_STYLES.note} data-sim-real-device-hint="true">{copy.realDeviceRetryHint}</span>
+      ) : null}
+      {status !== undefined && status.ready === false && (onStart !== undefined || onRetry !== undefined) ? (
+        <div style={REAL_DEVICE_STYLES.actions}>
+          {onStart !== undefined ? (
+            <button
+              type="button"
+              style={CARD_STYLES.primaryButton}
+              onClick={onStart}
+              data-sim-real-device-start="true"
+            >
+              {copy.realStartAction}
+            </button>
+          ) : null}
+          {onRetry !== undefined ? (
+            <button
+              type="button"
+              style={CARD_STYLES.primaryButton}
+              onClick={onRetry}
+              data-sim-real-device-retry="true"
+            >
+              {copy.retry}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -961,6 +1393,14 @@ export function simToolNameOf(block: ToolCallBlock): string {
 export interface SimulatorPanelProps {
   toolName: string
   block: ToolCallBlock
+  /**
+   * The session the panel belongs to (the panel host passes the open
+   * request's sessionId). Present → auto-follow is enabled: the panel scans
+   * the source registry for the session's NEWEST settled result and
+   * re-targets to its device. Absent (the per-tool details seat) → follow
+   * stays off.
+   */
+  sessionId?: string
   fetcher?: SimFetcher
   wsFactory?: SimWsFactory
   colorScheme: 'light' | 'dark'
@@ -978,6 +1418,10 @@ export interface SimulatorPanelProps {
   /** Stream display report for the panel host (orientation + natural size) —
    * the host's landscape auto-widen listens to it. */
   onDisplayChange?: (display: SimPanelDisplayReport) => void
+  /** A successful device switch — the panel already adopted the new device
+   * (synthetic meta + seeded grant); the panel host uses this to replace the
+   * open request/source so the store and registry follow the switch. */
+  onDeviceSwitched?: (result: SimSwitchResponse) => void
 }
 
 /** One display report for the panel host: the stream's orientation (tag-130
@@ -1015,6 +1459,8 @@ export function SimulatorPanel({
   frameStyle,
   onFrameStyleChange,
   onDisplayChange,
+  onDeviceSwitched,
+  sessionId,
 }: SimulatorPanelProps): React.JSX.Element {
   const copy = simCopy(locale)
   const [liveOpen, setLiveOpen] = useState(false)
@@ -1033,54 +1479,417 @@ export function SimulatorPanel({
   const settled = 'kind' in block
   const resolved = settled && !block.isError ? resolveSimMeta(toolName, block) : undefined
   const meta = resolved?.meta
-  const streamMeta: SimStreamMeta | undefined = meta?.kind === 'sim-stream'
+  const baseStreamMeta: SimStreamMeta | undefined = meta?.kind === 'sim-stream'
     ? meta
     : meta?.kind === 'sim-build-run'
       ? { kind: 'sim-stream', device: meta.device }
       : undefined
   const screenshotMeta: SimScreenshotMeta | undefined = meta?.kind === 'sim-screenshot' ? meta : undefined
-  const mode: SimPanelMode = streamMeta !== undefined
-    ? 'stream'
-    : screenshotMeta !== undefined
-      ? 'screenshot'
-      : 'unavailable'
+
+  // ── auto-follow (the panel re-targets to the newest in-session result) ────
+  // The source registry's change counter drives the candidate scan below;
+  // the follow/override lifecycle itself is the pure state machine in
+  // sim-panel-follow.ts (debounce window, user-override, in-flight guard).
+  const sourcesVersion = useSyncExternalStore(
+    subscribeSimPanelSources,
+    simPanelSourcesVersion,
+    simPanelSourcesVersion,
+  )
+  const followEnabled = sessionId !== undefined && sessionId !== ''
+  const [followState, dispatchFollow] = useReducer(
+    simFollowStateNext,
+    undefined,
+    (): SimFollowState => simFollowStateInitial(resolved?.meta.device?.udid),
+  )
+  const followStateRef = useRef(followState)
+  followStateRef.current = followState
+  // True while a follow-triggered stream switch is in flight — its settle
+  // (stream live / fallback / switch error) reports back into the machine.
+  const followSwitchRef = useRef(false)
+  // One commit at a time (queued decisions are consumed sequentially).
+  const followCommitBusyRef = useRef(false)
+
+  // ── device switch state (the header picker) ────────────────────────────────
+  // The synthetic stream meta adopted after a successful switch: the panel's
+  // meta source of truth follows the new device immediately, and the panel
+  // host replaces the open request/source with the same capsule-style
+  // synthetic source (`onDeviceSwitched`), so the store/registry agree.
+  const [switchedMeta, setSwitchedMeta] = useState<SimStreamMeta>()
+  // Fresh capability URLs from the switch-device response, handed to the
+  // stream session as a one-shot seed (useSimStream applies them on the
+  // grant cycle whose udid matches; every later re-grant uses /grant).
+  const [seededGrant, setSeededGrant] = useState<SimSeededGrant>()
+  // Transitional picker state: true from the pick until the new stream
+  // (seeded from the returned capability) goes live or falls back.
+  const [switching, setSwitching] = useState(false)
+  const [switchError, setSwitchError] = useState('')
+  // A picked PHYSICAL device: the panel describes it instead of streaming
+  // (no simctl framebuffer — the live view needs WebDriverAgent). Picking a
+  // simulator again clears it and the stream comes back.
+  const [realDevice, setRealDevice] = useState<SimRealDeviceEntry>()
+  // The udid the open-adoption effect below already classified — one attempt
+  // per udid, so a re-render/re-fetch can never loop on a settled decision.
+  const realAdoptAttemptedRef = useRef<string>()
+  const switchTargetRef = useRef<string>()
+  const seedStreamUrlRef = useRef<string>()
+  const switchControllerRef = useRef<SimDeviceSwitchController>()
+  const onDeviceSwitchedRef = useRef(onDeviceSwitched)
+  onDeviceSwitchedRef.current = onDeviceSwitched
+
+  const streamMeta: SimStreamMeta | undefined = switchedMeta ?? baseStreamMeta
+  const mode: SimPanelMode = realDevice !== undefined
+    ? 'real-device'
+    : streamMeta !== undefined
+      ? 'stream'
+      : screenshotMeta !== undefined
+        ? 'screenshot'
+        : 'unavailable'
+  // The device the panel was OPENED for, when it is not a live simulator
+  // stream (a screenshot result card carries this udid; a boot/build-run card
+  // is a stream and never reaches the adoption path). A stable STRING — not a
+  // derived meta object — so the adoption effect below can depend on it
+  // without re-running (and cancelling its in-flight fetch) on every render:
+  // resolveSimMeta builds fresh objects each call.
+  const openedDeviceUdid: string | undefined = screenshotMeta?.device?.udid ?? resolved?.meta.device?.udid
   // The plugin only serves the iOS Simulator: the header title is the
   // unified "iOS 模拟器" / "iOS Simulator" regardless of which tool opened
-  // the panel (boot/screenshot/interact/build_run). The device subtitle
-  // below keeps the identity.
+  // the panel (boot/screenshot/interact/build_run). The device picker below
+  // keeps the identity.
   const title = copy.simulator
+
+  // ── adopt a physical device the panel was OPENED for ────────────────────────
+  // A tool result that targeted a REAL phone (ios_sim_screenshot /
+  // ios_sim_interact on the device) carries the phone's udid, but the panel
+  // cannot stream a phone — the live mirror needs WebDriverAgent (real-device
+  // mode), not the simctl framebuffer. With no stream and no picked phone,
+  // `mode` falls through to 'screenshot' and the panel renders the STILL
+  // screenshot forever. Auto-follow cannot rescue it either: the opened meta's
+  // phone udid seeded `currentUdid` (simFollowStateInitial), so a later result
+  // for the SAME phone is a no-op and never arms a window. This effect closes
+  // that gap: classify the panel's own non-stream device against the host
+  // listing ONCE and, when it is a READY physical device, activate real-device
+  // mode (setRealDevice) so the live WebDriverAgent mirror appears.
+  //
+  // Guards: it never runs once a stream or a picked phone is active (a live
+  // simulator stream is auto-follow's domain — that path has its own debounce),
+  // a manual pick stands adoption down exactly like auto-follow, and the
+  // once-per-udid ref above makes a re-render/re-fetch loop impossible. No
+  // network during render/SSR — it lives in this effect like its neighbours.
+  useEffect(() => {
+    if (realDevice !== undefined || streamMeta !== undefined) return
+    if (typeof openedDeviceUdid !== 'string' || openedDeviceUdid === '') return
+    if (followStateRef.current.userOverrode) return
+    if (realAdoptAttemptedRef.current === openedDeviceUdid) return
+    realAdoptAttemptedRef.current = openedDeviceUdid
+    let cancelled = false
+    void requestSimDevices(fetcher ?? fetch).then(listing => {
+      if (cancelled) return
+      const target = simFollowTargetOf(openedDeviceUdid, listing)
+      if (target === undefined || target.kind !== 'real') return
+      setSwitchError('')
+      setRealDevice(target.entry)
+      // Re-base the follow machine's current device the same way the commit
+      // path does, so a later result for the SAME phone never arms a pointless
+      // window. NOT `manual-pick`: the user did not choose this, so the
+      // user-override flag must stay clear.
+      dispatchFollow({ kind: 'switch-settled', udid: target.entry.udid, now: Date.now() })
+    // A listing that cannot be fetched simply leaves the panel where it is:
+    // adoption is an upgrade, never a requirement, and an unhandled rejection
+    // here would surface as a console error in the user's session.
+    }).catch(() => undefined)
+    return () => { cancelled = true }
+  }, [realDevice, streamMeta !== undefined, openedDeviceUdid, fetcher])
 
   // The stream session lives HERE (not inside the frame) so the top toolbar
   // can reach sendHome/sendRotate/refresh. It stays dormant for non-stream
   // panels — one unconditional hook keeps the hook order stable.
   const streamSession = useSimStream({
     meta: streamMeta,
+    copy: copy as unknown as Record<string, string>,
     fetcher,
     wsFactory,
     unavailableCopy: copy.streamUnavailable,
     onConnectionChange: setLiveOpen,
-    enabled: streamMeta !== undefined,
+    // A physical device is not served by the sim host: keep the session idle
+    // so the panel never grants/relays a phone udid against /stream.
+    enabled: streamMeta !== undefined && realDevice === undefined,
+    seededGrant,
   })
+
+  // The real-device session: status check → real-stream grant → the same
+  // SimLiveFrameBody surface the simulator streams through. Idle (checking
+  // only) while no physical device is picked — one unconditional hook keeps
+  // the order stable. It drives the shared Live dot too: picking a phone
+  // retires the ws-backed sim session (its cleanup reports offline) and the
+  // real session reports its own live state.
+  const realSession = useSimRealSession({
+    udid: realDevice?.udid,
+    copy: copy as unknown as Record<string, string>,
+    fetcher,
+    enabled: realDevice !== undefined,
+    onLiveChange: setLiveOpen,
+  })
+
+  // Bind the device-switch controller (no network during render/SSR — the
+  // controller only POSTs from a pick). The picker's transitional flag
+  // clears once the stream seeded from the switch response reaches live or
+  // the grant falls back.
+  useEffect(() => {
+    const controller = createSimDeviceSwitchController({
+      fetcher: fetcher ?? fetch,
+      copy: copy as unknown as Record<string, string>,
+      onSwitchingChange: setSwitching,
+      onSwitched: (result) => {
+        setSwitchError('')
+        switchTargetRef.current = result.device
+        seedStreamUrlRef.current = result.streamUrl
+        setSwitchedMeta(simSwitchedStreamMetaOf(result))
+        setSeededGrant({
+          udid: result.device,
+          streamUrl: result.streamUrl,
+          wsUrl: result.wsUrl,
+          ...(result.expiresAt === undefined ? {} : { expiresAt: result.expiresAt }),
+        })
+        onDeviceSwitchedRef.current?.(result)
+      },
+      onError: (message) => {
+        // Selection reverts automatically: the panel meta never changed.
+        switchTargetRef.current = undefined
+        setSwitchError(message)
+        if (followSwitchRef.current) {
+          // A follow-triggered switch failed: end the machine's in-flight
+          // guard (the panel stays on the old device).
+          followSwitchRef.current = false
+          dispatchFollow({ kind: 'switch-settled', now: Date.now() })
+        }
+      },
+    })
+    switchControllerRef.current = controller
+    return () => controller.dispose()
+  }, [fetcher])
+
+  useEffect(() => {
+    if (!switching) return
+    const seedUrl = seedStreamUrlRef.current
+    if (seedUrl !== undefined
+      && streamSession.phase === 'live'
+      && streamSession.streamUrl === seedUrl) {
+      // The new grant (the switch-device capability) is live: swap done.
+      seedStreamUrlRef.current = undefined
+      setSwitching(false)
+      if (followSwitchRef.current) {
+        followSwitchRef.current = false
+        dispatchFollow({ kind: 'switch-settled', udid: switchTargetRef.current, now: Date.now() })
+      }
+      return
+    }
+    if (streamSession.phase === 'fallback'
+      && switchTargetRef.current !== undefined
+      && streamMeta?.device?.udid === switchTargetRef.current) {
+      // The seeded grant fell back: end the transitional state and let the
+      // frame's fallback surface carry the failure.
+      switchTargetRef.current = undefined
+      setSwitching(false)
+      if (followSwitchRef.current) {
+        followSwitchRef.current = false
+        dispatchFollow({ kind: 'switch-settled', now: Date.now() })
+      }
+    }
+  }, [switching, streamSession.phase, streamSession.streamUrl, streamMeta])
+
+  // Server truth wins over local belief. When the stream cannot be granted
+  // for the device the panel thinks it owns, ask /status what is actually
+  // streaming and adopt it — the picker mirrors this meta, so the two can
+  // never disagree. (Before this, a panel could sit on a stale device and
+  // keep re-granting it, which the old takeover-happy /grant then obeyed.)
+  useEffect(() => {
+    if (streamSession.phase !== 'fallback' || streamMeta === undefined) return
+    let cancelled = false
+    void requestSimStatus(fetcher ?? fetch).then(status => {
+      if (cancelled || !status.running || status.device === undefined) return
+      if (status.device === streamMeta.device?.udid) return
+      setSwitchedMeta(simSwitchedStreamMetaOf({
+        device: status.device,
+        ...(status.deviceName === undefined ? {} : { deviceName: status.deviceName }),
+        // No capability URLs: this is a meta re-sync, not a seeded grant —
+        // the next grant cycle mints fresh ones for the real device.
+        streamUrl: '',
+        wsUrl: '',
+      }))
+      setSeededGrant(undefined)
+    })
+    return () => { cancelled = true }
+  }, [streamSession.phase, streamMeta, fetcher])
+
+  // The stream branch of a device pick, shared with the auto-follow commit
+  // path: leave any real-device mode and POST switch-device for the udid
+  // (the controller seeds the new grant and the existing onDeviceSwitched
+  // bookkeeping keeps the store/registry in sync).
+  const switchStreamTo = useCallback((udid: string): void => {
+    setRealDevice(undefined)
+    if (udid === streamMeta?.device?.udid) return
+    switchTargetRef.current = udid
+    switchControllerRef.current?.switchTo(udid)
+  }, [streamMeta])
+
+  const handleSelectDevice = useCallback((value: string): void => {
+    if (value === '') return
+    // A picker pick is the user's explicit choice: auto-follow stands down
+    // for the rest of this panel session (the same user-override precedent
+    // as the landscape auto-widen). A switch the panel applies BY
+    // auto-follow never dispatches this.
+    dispatchFollow({ kind: 'manual-pick', udid: simRealDeviceUdidOf(value) ?? value })
+    const realUdid = simRealDeviceUdidOf(value)
+    if (realUdid !== undefined) {
+      // Physical device: never POST switch-device (it only knows simulators).
+      // Look the entry up from the listing the picker just fetched.
+      void requestSimDevices(fetcher ?? fetch).then(listing => {
+        const picked = listing.realDevices.find(entry => entry.udid === realUdid)
+        if (picked !== undefined) {
+          setSwitchError('')
+          setRealDevice(picked)
+        }
+      })
+      return
+    }
+    switchStreamTo(value)
+  }, [switchStreamTo, fetcher])
+
+  // ── auto-follow commit: apply one decided udid via the existing paths ────
+  // A decision carries the raw udid; the host's device listing classifies
+  // it — a simulator re-targets the stream through the switch/grant path, a
+  // READY real device activates real-device mode (live view when WDA is
+  // ready, the not-ready info surface otherwise). A udid the host cannot
+  // address at all resolves undefined and the panel stays put — auto-follow
+  // never yanks the live view for a device nothing can be done with.
+  const commitFollowQueue = useCallback(async (): Promise<void> => {
+    if (!followEnabled || followCommitBusyRef.current || followStateRef.current.inflight) return
+    const decision = followStateRef.current.decisions[0]
+    if (decision === undefined) return
+    followCommitBusyRef.current = true
+    try {
+      dispatchFollow({ kind: 'consume', seq: decision.seq })
+      const listing = await requestSimDevices(fetcher ?? fetch)
+      const target = simFollowTargetOf(decision.udid, listing)
+      if (target === undefined) return
+      // A manual pick during the listing fetch supersedes the decision, and
+      // a concurrent switch in flight is never overlapped.
+      if (followStateRef.current.userOverrode || followStateRef.current.inflight) return
+      if (target.kind === 'simulator') {
+        followSwitchRef.current = true
+        dispatchFollow({ kind: 'switch-start' })
+        setRealDevice(undefined)
+        if (decision.udid === streamMeta?.device?.udid) {
+          // The stream already serves this device: nothing to switch — but
+          // the machine's current device still re-bases.
+          followSwitchRef.current = false
+          dispatchFollow({ kind: 'switch-settled', udid: decision.udid, now: Date.now() })
+          return
+        }
+        switchTargetRef.current = decision.udid
+        if (switchControllerRef.current?.switchTo(decision.udid) !== true) {
+          // A concurrent switch is already in flight: never overlap.
+          followSwitchRef.current = false
+          dispatchFollow({ kind: 'switch-settled', now: Date.now() })
+        }
+        return
+      }
+      // Physical device: activate real-device mode directly — the real
+      // session's status check drives the live view (WDA ready) or the
+      // not-ready surface with its reason + 启动 WebDriverAgent.
+      setSwitchError('')
+      setRealDevice(target.entry)
+      dispatchFollow({ kind: 'switch-settled', udid: target.entry.udid, now: Date.now() })
+    } finally {
+      followCommitBusyRef.current = false
+    }
+  }, [followEnabled, fetcher, streamMeta])
+
+  // Newest settled in-session result → arm the debounce window.
+  useEffect(() => {
+    if (!followEnabled) return
+    const candidate = simFollowNewestCandidateOf(simPanelSourcesSnapshot(), sessionId)
+    if (candidate === undefined) return
+    dispatchFollow({ kind: 'result', udid: candidate.udid, version: candidate.time, now: Date.now() })
+  }, [sourcesVersion, sessionId, followEnabled])
+
+  // The debounce timer: one armed window → one timer at its deadline.
+  useEffect(() => {
+    const pending = followState.pending
+    if (pending === undefined) return
+    const delay = Math.max(0, pending.deadline - Date.now())
+    const timer = setTimeout(() => { dispatchFollow({ kind: 'tick', now: Date.now() }) }, delay)
+    return () => { clearTimeout(timer) }
+  }, [followState.pending])
+
+  // Consume decisions (re-triggers when a switch settle flips the in-flight
+  // guard so an aged target releases).
+  useEffect(() => {
+    if (followState.decisions.length > 0) void commitFollowQueue()
+  }, [followState.decisions.length, followState.inflight, commitFollowQueue])
+
+  // The device menu and the Home double-click share one runner: the host
+  // picks the backend from the udid, so the panel only names the action. A
+  // failure is surfaced through the picker's inline error line rather than a
+  // toast — same place every other control failure already lands.
+  const deviceActionDevice = realDevice?.udid ?? streamMeta?.device?.udid ?? screenshotMeta?.device?.udid
+  const runDeviceAction = useCallback(async (action: SimDeviceMenuAction): Promise<void> => {
+    setSwitchError('')
+    const result = await postDeviceAction(fetcher ?? fetch, deviceActionDevice, action)
+    if (!result.ok) {
+      const message = simRouteErrorTextOf(result, copy as unknown as Record<string, string>)
+      setSwitchError(message === '' ? copy.deviceActionFailed : message)
+      throw new Error(message === '' ? copy.deviceActionFailed : message)
+    }
+  }, [fetcher, deviceActionDevice, copy])
+
   const capture = useSimCapture({ fetcher })
-  const captureDevice = meta?.device?.udid
+  // A live real-device panel captures the PHONE via the route's WDA branch;
+  // stream/screenshot panels capture the simulator as before.
+  const captureDevice = realDevice?.udid ?? (streamMeta ?? screenshotMeta)?.device?.udid
   const onScreenshot = useCallback((): void => {
     capture.capture(captureDevice)
   }, [capture, captureDevice])
 
   // Report the stream display (orientation + natural size) up to the panel
-  // host so its landscape auto-widen can follow the device; non-stream
-  // panels report an all-undefined display.
+  // host so its landscape auto-widen can follow the device — the simulator
+  // stream AND a live real-device stream both report; non-stream panels
+  // report an all-undefined display.
   useEffect(() => {
     if (onDisplayChange === undefined) return
-    onDisplayChange(mode === 'stream'
-      ? { orientation: streamSession.orientation, naturalWidth, naturalHeight }
-      : { orientation: undefined, naturalWidth: undefined, naturalHeight: undefined })
-  }, [mode, naturalWidth, naturalHeight, onDisplayChange, streamSession.orientation])
+    if (mode === 'stream') {
+      onDisplayChange({ orientation: streamSession.orientation, naturalWidth, naturalHeight })
+      return
+    }
+    if (mode === 'real-device') {
+      onDisplayChange({ orientation: realSession.orientation, naturalWidth, naturalHeight })
+      return
+    }
+    onDisplayChange({ orientation: undefined, naturalWidth: undefined, naturalHeight: undefined })
+  }, [mode, naturalWidth, naturalHeight, onDisplayChange, streamSession.orientation, realSession.orientation])
 
   return (
     <SimulatorPanelBody
       title={title}
-      device={meta?.device}
+      device={streamMeta?.device ?? meta?.device}
+      devicePicker={streamMeta !== undefined || realDevice !== undefined || screenshotMeta !== undefined ? (
+        <SimDevicePicker
+          fetcher={fetcher}
+          {...(realDevice === undefined ? {} : { currentRealUdid: realDevice.udid, currentRealDevice: realDevice })}
+          currentDevice={streamMeta?.device ?? screenshotMeta?.device}
+          switching={switching}
+          error={switchError}
+          locale={locale}
+          onSelect={handleSelectDevice}
+        />
+      ) : undefined}
+      followIndicator={followEnabled ? (
+        <SimFollowIndicator
+          overridden={followState.userOverrode}
+          locale={locale}
+          onResume={() => { dispatchFollow({ kind: 'resume-follow' }) }}
+        />
+      ) : undefined}
       mode={mode}
       liveOpen={liveOpen}
       colorScheme={colorScheme}
@@ -1089,17 +1898,82 @@ export function SimulatorPanel({
       sizeMode={activeSizeMode}
       naturalWidth={naturalWidth}
       naturalHeight={naturalHeight}
-      orientation={mode === 'stream' ? streamSession.orientation : undefined}
+      orientation={mode === 'stream'
+        ? streamSession.orientation
+        : mode === 'real-device' ? realSession.orientation : undefined}
       onSizeModeChange={handleSizeModeChange}
       frameStyle={activeFrameStyle}
       onFrameStyleChange={handleFrameStyleChange}
-      onHome={mode === 'stream' ? streamSession.sendHome : undefined}
-      onRotate={mode === 'stream' ? streamSession.sendRotate : undefined}
-      onRefresh={mode === 'stream' ? streamSession.refresh : undefined}
+      streaming={mode === 'real-device'
+        && (realSession.phase === 'live' || realSession.phase === 'granting')}
+      onHome={mode === 'stream'
+        ? streamSession.sendHome
+        : mode === 'real-device' ? realSession.sendHome : undefined}
+      onRotate={mode === 'stream'
+        ? streamSession.sendRotate
+        : mode === 'real-device' ? realSession.sendRotate : undefined}
+      onRefresh={mode === 'stream'
+        ? streamSession.refresh
+        : mode === 'real-device' ? realSession.refresh : undefined}
       onScreenshot={meta === undefined ? undefined : onScreenshot}
+      onDeviceAction={mode === 'stream' || (mode === 'real-device' && realSession.phase === 'live')
+        ? runDeviceAction
+        : undefined}
+      deviceMenuReal={mode === 'real-device'}
       captureState={capture.phase}
     >
-      {streamMeta !== undefined ? (
+      {realDevice !== undefined ? (
+        realSession.phase === 'not-ready' ? (
+          <SimRealDevicePanel
+            device={realDevice}
+            locale={locale}
+            status={realSession.status}
+            failure={realSession.failure}
+            failureDetail={realSession.failureDetail}
+            onStart={realSession.start}
+            onRetry={realSession.refresh}
+          />
+        ) : realSession.phase === 'starting' ? (
+          <SimRealDevicePanel
+            device={realDevice}
+            locale={locale}
+            status={realSession.status}
+            starting
+            startHint={realSession.startHint}
+          />
+        ) : realSession.phase === 'checking' ? (
+          <div style={PANEL_LOADING_STYLES} role="status" data-sim-real-device-checking="true">
+            <span style={CARD_STYLES.muted}>{copy.realDeviceChecking}</span>
+            <span style={CARD_STYLES.muted}>{realDevice.udid}</span>
+          </div>
+        ) : (
+          <SimLiveFrameBody
+            meta={{ kind: 'sim-stream', device: { udid: realDevice.udid, name: realDevice.name } }}
+            colorScheme={colorScheme}
+            locale={locale}
+            variant="panel"
+            session={{
+              phase: realSession.phase === 'live' ? 'live' : 'granting',
+              streamUrl: realSession.streamUrl,
+              failure: realSession.failure,
+              imgRef: realSession.imgRef,
+              refresh: realSession.refresh,
+              retryOnce: realSession.retryOnce,
+              sendHome: realSession.sendHome,
+              orientation: realSession.orientation,
+              onPointerDown: realSession.onPointerDown,
+              onPointerMove: realSession.onPointerMove,
+              onPointerUp: realSession.onPointerUp,
+            }}
+            naturalWidth={naturalWidth}
+            naturalHeight={naturalHeight}
+            onNaturalSize={(width, height) => {
+              setNaturalWidth(width)
+              setNaturalHeight(height)
+            }}
+          />
+        )
+      ) : streamMeta !== undefined ? (
         <SimLiveFrameBody
           meta={streamMeta}
           colorScheme={colorScheme}

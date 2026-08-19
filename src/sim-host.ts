@@ -503,6 +503,17 @@ export class SimHostController {
   }
 
   /**
+   * The live stream's handshake (url/streamUrl/wsUrl/port/device), or undefined
+   * when nothing is streaming. Read-only and non-starting on purpose: the
+   * gesture path (src/sim-gesture.ts) needs `wsUrl` for the control socket but
+   * must NOT launch a stream to get it — a tool call can arrive before the
+   * stream exists, and then it falls back to the serve-sim CLI.
+   */
+  get streamInfo(): SimStreamInfo | undefined {
+    return this.running ? this.#info : undefined
+  }
+
+  /**
    * Boot the simulator if needed and make sure one serve-sim stream child is
    * alive for it. Concurrent callers share a single launch; callers for a
    * different device wait for the current one to be replaced.

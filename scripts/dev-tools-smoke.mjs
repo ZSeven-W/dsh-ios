@@ -65,10 +65,11 @@ try {
   tools = createSimTools(controller)
   const factoryNames = [
     tools.iosSimDevices.name, tools.iosSimBoot.name, tools.iosSimShutdown.name,
-    tools.iosSimScreenshot.name, tools.iosSimInteract.name, tools.iosSimBuildRun.name,
+    tools.iosSimScreenshot.name, tools.iosSimInteract.name, tools.iosSimListApps.name,
+    tools.iosSimLaunchApp.name, tools.iosSimBuildRun.name, tools.iosRealStartWda.name,
   ]
   step(
-    'factory produces the six ios_sim_* tools',
+    'factory produces the nine tools (eight ios_sim_* + ios_real_start_wda)',
     factoryNames.join(',') === IOS_TOOL_NAMES.join(','),
     factoryNames.join(' '),
   )
@@ -79,6 +80,7 @@ try {
     'devices=safe build_run=exclusive',
   )
   step('build_run declares a 10-minute timeout', tools.iosSimBuildRun.timeoutMs === 600_000)
+  step('ios_real_start_wda declares an 8-minute timeout (cold build + ready wait)', tools.iosRealStartWda.timeoutMs === 480_000)
 
   if (!controller.status().available) throw new Error('serve-sim unavailable; cannot continue')
 

@@ -12,7 +12,7 @@
  * its result as an openable source for the simulator panel.
  */
 
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
 import {
   type SimFetcher,
@@ -23,6 +23,14 @@ import { simCopy, type SimLocale } from './copy.js'
 import { simResultTextOf } from './sim-result.js'
 import { CARD_STYLES } from './card-styles.js'
 import { useSimPanelSource, type SimulatorPanelSource } from './sim-panel-trigger.js'
+import {
+  forgetSimPanelAutoOpenCall,
+  rememberSimPanelAutoOpenCall,
+  simPanelAutoOpenActivatedAt,
+  simPanelAutoOpenKey,
+  simPanelAutoOpenShouldOpen,
+  takeSimPanelAutoOpenCall,
+} from './sim-panel-auto-open.js'
 
 /** Injectable surfaces every card accepts (tests, headless hosts). */
 export interface SimCardOptions {
@@ -30,6 +38,8 @@ export interface SimCardOptions {
   wsFactory?: SimWsFactory
   colorScheme?: 'light' | 'dark'
   locale?: string
+  /** Auto-open callback: fire once when a settled START result should open the panel. */
+  autoOpen?: (source: SimulatorPanelSource) => void
 }
 
 /**
@@ -111,10 +121,11 @@ function deviceLabelOf(device: { udid?: string; name?: string } | undefined): st
  * simulator display lives in the sidebar panel only.
  */
 export function SimStreamCard(props: ToolCallViewProps & SimCardOptions): React.JSX.Element {
-  const { block, toolName, callId, sessionId } = props
+  const { block, toolName, callId, sessionId, autoOpen } = props
   const copy = simCopy(props.locale)
   const locale = props.locale === 'zh' ? 'zh' : 'en'
   const settled = 'kind' in block
+  const running = !settled
   const error = settled && block.isError
   const resolved = settled && !error ? resolveSimMeta(toolName, block) : undefined
   const streamMeta = resolved?.meta.kind === 'sim-stream' ? resolved.meta : undefined
@@ -127,6 +138,37 @@ export function SimStreamCard(props: ToolCallViewProps & SimCardOptions): React.
     block,
   }), [block, callId, sessionId, streamMeta, toolName])
   useSimPanelSource(streamMeta !== undefined, panelSource)
+
+  // Auto-open on settle: arm while the boot runs, forget on error, and take
+  // the key exactly once when the live stream meta lands (openpencil's
+  // liveAutoOpen* lifecycle, verbatim shape). The panel host's openIfIdle
+  // keeps an already-open panel from being replaced.
+  const autoOpenSessionId = String(sessionId ?? '')
+  const autoOpenKey = simPanelAutoOpenKey(autoOpenSessionId, callId)
+  const autoOpenBlockTime = typeof block.time === 'number' && Number.isFinite(block.time) ? block.time : 0
+  useEffect(() => {
+    if (running && autoOpenBlockTime >= simPanelAutoOpenActivatedAt) {
+      rememberSimPanelAutoOpenCall(autoOpenKey)
+    } else if (error) {
+      forgetSimPanelAutoOpenCall(autoOpenKey)
+    }
+  }, [autoOpenBlockTime, autoOpenKey, error, running])
+  useEffect(() => {
+    // The pure decision gates error/tool/session/time; the running and
+    // source/callback-presence guards stay here (the decision has no settled
+    // field). One-shot take runs last so a re-render never reopens.
+    if (running || panelSource === undefined || autoOpen === undefined) return
+    if (!simPanelAutoOpenShouldOpen({
+      toolName,
+      isError: error,
+      blockTime: autoOpenBlockTime,
+      sessionId: autoOpenSessionId,
+      activatedAt: simPanelAutoOpenActivatedAt,
+      currentSessionId: autoOpenSessionId,
+    })) return
+    if (!takeSimPanelAutoOpenCall(autoOpenKey)) return
+    autoOpen(panelSource)
+  }, [autoOpen, autoOpenBlockTime, autoOpenKey, autoOpenSessionId, error, panelSource, running, toolName])
 
   if (!settled) {
     return simCardChrome({

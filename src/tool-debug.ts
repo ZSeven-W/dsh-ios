@@ -50,6 +50,14 @@ import {
   getDevice,
   type SimulatorDevice,
 } from './simctl.js'
+import {
+  getApp as getRealDeviceApp,
+  getRealDevice,
+  listProcesses as listRealDeviceProcesses,
+  matchesRealDevice,
+  requireAvailable,
+  type RealDevice,
+} from './devicectl.js'
 import type { SimDeviceInfo } from './tools.js'
 
 /** Error prefix required on non-macOS hosts (same text as tools.ts). */
@@ -85,6 +93,13 @@ const DIAGNOSTIC_LINE_MAX_CHARS = 240
 const BACKTRACE_TRUNCATION_HINT = '[dsh-ios: backtrace truncated at ~200 lines — re-run with all_threads=false for just the main thread, or open the sample report for the full stacks]'
 const MALLOC_STACK_LOGGING_HINT = 'the app was not launched with MallocStackLogging, so allocation backtraces are unavailable — relaunch with SIMCTL_CHILD_MallocStackLogging=1 xcrun simctl launch <udid> <bundle_id>, then re-run'
 const DEVELOPER_MODE_HINT = 'macOS Developer Mode is required for full task inspection — run `sudo DevToolsSecurity -enable` once, then retry'
+/**
+ * What a not-installed answer must say. A guessed bundle id looks exactly like
+ * a missing app, and in a measured session that ambiguity turned into 25 shell
+ * calls and a grep of the user's unrelated repositories (WP57) — so the result
+ * itself names the listing verb instead of leaving the caller to guess again.
+ */
+const APP_LIST_HINT = 'run ios_sim_list_apps to see what is installed'
 
 export interface SimDebugToolsOptions {
   /** Plugin-owned cache root for sample reports and memgraphs (default `<tmp>/dsh-ios`). */
@@ -176,6 +191,8 @@ export interface SimAppInfoResult {
   version?: string
   shortVersion?: string
   applicationType?: string
+  /** Set when the bundle id is not installed: what to run instead of guessing. */
+  note?: string
 }
 
 /** The four debug tool definitions bound to one sim host controller. */
@@ -260,6 +277,31 @@ function requireBooted(device: SimulatorDevice): void {
   if (device.state !== 'Booted') {
     throw new Error(`Simulator "${device.name}" is not booted (state ${device.state}) — call ios_sim_boot first, then retry`)
   }
+}
+
+/** Debug target: a simulator or a physical device (devicectl). */
+type DebugTarget =
+  | { kind: 'simulator'; device: SimulatorDevice }
+  | { kind: 'device'; device: RealDevice }
+
+/** The shared device summary shape for real-device debug results. */
+function realDeviceSummary(device: RealDevice): SimDeviceInfo {
+  return { udid: device.udid, name: device.name, runtime: device.osVersion ?? '', state: device.state }
+}
+
+/**
+ * Resolve the device debug tools operate on. An explicit reference that
+ * matches a connected physical device selects the devicectl path; anything
+ * else resolves through the simulator list (and never boots anything).
+ */
+async function resolveDebugTarget(host: SimHostController, reference: string | undefined, signal?: AbortSignal): Promise<DebugTarget> {
+  const trimmed = reference?.trim() ?? ''
+  if (trimmed !== '' && await matchesRealDevice(trimmed, signal)) {
+    const device = await getRealDevice(trimmed, signal)
+    requireAvailable(device)
+    return { kind: 'device', device }
+  }
+  return { kind: 'simulator', device: await resolveDebugDevice(host, reference) }
 }
 
 /** Run `xcrun simctl <args>` and resolve stdout; abortable and typed. */
@@ -833,13 +875,16 @@ export function createSimDebugTools(host: SimHostController, options: SimDebugTo
   const iosSimProcesses = defineTool({
     name: 'ios_sim_processes',
     description: 'List the running app processes on a booted iOS Simulator (host-visible pid, process name, '
-      + 'bundle id), read from the simulator\u2019s own launchd (UIKitApplication entries). Use this to discover '
-      + 'the pid or bundle_id for ios_sim_backtrace and ios_sim_leaks. Filter with a case-insensitive substring '
-      + 'matched against the process name and bundle id. Concurrency-safe.',
+      + 'bundle id), read from the simulator\u2019s own launchd (UIKitApplication entries). Pass the udid of a '
+      + 'USB-connected physical device (ios_sim_devices.realDevices) to list its running processes instead '
+      + '(devicectl; pids are ON-DEVICE pids there, and only .app processes carry a bundle id). Use this to '
+      + 'discover the pid or bundle_id for ios_sim_backtrace and ios_sim_leaks. Filter with a '
+      + 'case-insensitive substring matched against the process name and bundle id. Concurrency-safe.',
     parameters: {
       udid: {
         type: 'string',
-        description: 'Target simulator udid or device name. Defaults to the currently streamed device, else a booted simulator.',
+        description: 'Target simulator or physical-device udid (or device name). Defaults to the currently '
+          + 'streamed device, else a booted simulator.',
       },
       filter: {
         type: 'string',
@@ -873,18 +918,30 @@ export function createSimDebugTools(host: SimHostController, options: SimDebugTo
     isConcurrencySafe: () => true,
     async execute(args: { udid?: string; filter?: string }, exec) {
       assertDebugAvailable()
-      const device = await resolveDebugDevice(host, args.udid)
+      const target = await resolveDebugTarget(host, args.udid, exec.signal)
+      const filter = args.filter?.trim() ?? ''
+      const matchesFilter = (process: SimAppProcess): boolean =>
+        filter === ''
+        || process.name.toLowerCase().includes(filter.toLowerCase())
+        || (process.bundleId ?? '').toLowerCase().includes(filter.toLowerCase())
+      if (target.kind === 'device') {
+        const processes: SimAppProcess[] = (await listRealDeviceProcesses(target.device.udid, exec.signal))
+          .map(process => ({
+            pid: process.pid,
+            name: process.name,
+            ...(process.bundleId === undefined ? {} : { bundleId: process.bundleId }),
+          }))
+        return {
+          device: realDeviceSummary(target.device),
+          processes: processes.filter(matchesFilter),
+        } satisfies SimProcessesResult
+      }
+      const device = target.device
       requireBooted(device)
       const processes = await listAppProcesses(device.udid, exec.signal)
-      const filter = args.filter?.trim() ?? ''
-      const filtered = filter === ''
-        ? processes
-        : processes.filter(process =>
-          process.name.toLowerCase().includes(filter.toLowerCase())
-          || (process.bundleId ?? '').toLowerCase().includes(filter.toLowerCase()))
       return {
         device: { udid: device.udid, name: device.name, runtime: device.runtime, state: device.state },
-        processes: filtered,
+        processes: processes.filter(matchesFilter),
       } satisfies SimProcessesResult
     },
     presentCall: (args: { udid?: string; filter?: string }) => ({
@@ -947,6 +1004,10 @@ export function createSimDebugTools(host: SimHostController, options: SimDebugTo
     isConcurrencySafe: () => false,
     async execute(args: { udid?: string; pid?: number; bundle_id?: string; all_threads?: boolean }, exec) {
       assertDebugAvailable()
+      const realReference = args.udid?.trim() ?? ''
+      if (realReference !== '' && await matchesRealDevice(realReference, exec.signal)) {
+        throw new Error('ios_sim_backtrace: physical devices are not supported — host LLDB attaches to host processes, and on-device pids live on the phone, not on this Mac; use ios_sim_processes to see what runs on the device, or ios_sim_ui_tree to inspect its screen')
+      }
       const device = await resolveDebugDevice(host, args.udid)
       requireBooted(device)
       const target = await resolveTargetProcess(device, args.pid, args.bundle_id, exec.signal)
@@ -1098,6 +1159,10 @@ export function createSimDebugTools(host: SimHostController, options: SimDebugTo
     isConcurrencySafe: () => false,
     async execute(args: { udid?: string; pid?: number; bundle_id?: string; mode?: 'summary' | 'memgraph' }, exec) {
       assertDebugAvailable()
+      const realReference = args.udid?.trim() ?? ''
+      if (realReference !== '' && await matchesRealDevice(realReference, exec.signal)) {
+        throw new Error('ios_sim_leaks: physical devices are not supported — the host leaks tool cannot inspect the memory of processes running on the phone; use Xcode Instruments on the device, or ios_sim_processes / ios_sim_ui_tree instead')
+      }
       if (binaries.leaks === undefined) {
         throw new Error('Xcode\u2019s leaks tool is not installed on this host — install Xcode or the Command Line Tools, then retry')
       }
@@ -1188,14 +1253,19 @@ export function createSimDebugTools(host: SimHostController, options: SimDebugTo
 
   const iosSimAppInfo = defineTool({
     name: 'ios_sim_app_info',
-    description: 'Read installed-app facts for one simulator app: the app bundle path, the writable data '
-      + 'container path, and basic Info.plist values (display name, executable, version), via simctl '
-      + 'appinfo with a get_app_container fallback. Returns installed:false when the bundle id is not '
-      + 'installed. Concurrency-safe.',
+    description: 'Read installed-app facts for one app: the app bundle path, the writable data container '
+      + 'path, and basic Info.plist values (display name, executable, version), via simctl appinfo with a '
+      + 'get_app_container fallback. Pass the udid of a USB-connected physical device '
+      + '(ios_sim_devices.realDevices) to inspect apps on the real device via devicectl (on-device app path, '
+      + 'name/version, System vs User; container paths are not exposed for real devices). Returns '
+      + 'installed:false (plus a note naming ios_sim_list_apps) when the bundle id is not installed — a '
+      + 'third-party bundle id cannot be guessed, so list the installed apps instead of trying variants. '
+      + 'Concurrency-safe.',
     parameters: {
       udid: {
         type: 'string',
-        description: 'Target simulator udid or device name. Defaults to the currently streamed device, else a booted simulator.',
+        description: 'Target simulator or physical-device udid (or device name). Defaults to the currently '
+          + 'streamed device, else a booted simulator.',
       },
       bundle_id: {
         type: 'string',
@@ -1220,6 +1290,7 @@ export function createSimDebugTools(host: SimHostController, options: SimDebugTo
           version: { type: 'string' },
           shortVersion: { type: 'string' },
           applicationType: { type: 'string' },
+          note: { type: 'string' },
         },
       },
       render: renderJson,
@@ -1229,7 +1300,36 @@ export function createSimDebugTools(host: SimHostController, options: SimDebugTo
     async execute(args: { udid?: string; bundle_id: string }, exec) {
       assertDebugAvailable()
       const bundleId = args.bundle_id.trim()
-      if (bundleId === '') throw new Error('ios_sim_app_info: bundle_id must be a non-empty bundle identifier')
+      if (bundleId === '') {
+        throw new Error(`ios_sim_app_info: bundle_id must be a non-empty bundle identifier — ${APP_LIST_HINT}`)
+      }
+      const trimmedRef = args.udid?.trim() ?? ''
+      if (trimmedRef !== '' && await matchesRealDevice(trimmedRef, exec.signal)) {
+        const realDevice = await getRealDevice(trimmedRef, exec.signal)
+        requireAvailable(realDevice)
+        const app = await getRealDeviceApp(realDevice.udid, bundleId, exec.signal)
+        const info = realDeviceSummary(realDevice)
+        if (app === undefined) {
+          return {
+            device: info,
+            bundleId,
+            installed: false,
+            note: `${bundleId} is not installed on ${info.name} — ${APP_LIST_HINT}`,
+          } satisfies SimAppInfoResult
+        }
+        const bundleContainer = app.path === undefined ? undefined : app.path.slice(0, app.path.lastIndexOf('/'))
+        return {
+          device: info,
+          bundleId,
+          installed: true,
+          ...(app.path === undefined ? {} : { appPath: app.path }),
+          ...(bundleContainer === undefined ? {} : { bundleContainer }),
+          ...(app.name === undefined ? {} : { displayName: app.name, name: app.name }),
+          ...(app.bundleVersion === undefined ? {} : { version: app.bundleVersion }),
+          ...(app.version === undefined ? {} : { shortVersion: app.version }),
+          ...(app.defaultApp === true ? { applicationType: 'System' } : { applicationType: 'User' }),
+        } satisfies SimAppInfoResult
+      }
       const device = await resolveDebugDevice(host, args.udid)
       const fields = parseOpenStepPlist(await execSimctlCapture(['appinfo', device.udid, bundleId], exec.signal))
       // appinfo never errors for a missing app — it echoes only the bundle id.
@@ -1261,6 +1361,7 @@ export function createSimDebugTools(host: SimHostController, options: SimDebugTo
         ...(fields.CFBundleVersion === undefined ? {} : { version: fields.CFBundleVersion }),
         ...(fields.CFBundleShortVersionString === undefined ? {} : { shortVersion: fields.CFBundleShortVersionString }),
         ...(fields.ApplicationType === undefined ? {} : { applicationType: fields.ApplicationType }),
+        ...(installed ? {} : { note: `${bundleId} is not installed on ${device.name} — ${APP_LIST_HINT}` }),
       } satisfies SimAppInfoResult
     },
     presentCall: (args: { bundle_id: string }) => ({

@@ -18,8 +18,15 @@
  *      (proves bytes flow both ways); close releases the consumer refcount
  *   7. expired token → 403, garbage token → 403
  *   8. path outside the screenshot cache dir → 403 (grant-time and signed)
- *   9. dispose routes → all relays closed; no consumers left
- *  10. teardown: dispose the sim host, shut the simulator down, verify no
+ *   9. device switch: switch-device fence (403 without Origin / 415 / 405 /
+ *      400), unknown device → 409, the devices listing shape (booted first,
+ *      runtime descending, capped), the read-only status shape, then the
+ *      happy path — switch to a SECOND, shutdown simulator: the route boots
+ *      it, the stream follows (old device's token stops streaming, the old
+ *      stream is retired, refcounts stay sane) and the minted URLs proxy
+ *      MJPEG for the new device
+ *  10. dispose routes → all relays closed; no consumers left
+ *  11. teardown: dispose the sim host, shut BOTH simulators down, verify no
  *      serve-sim processes are left behind
  */
 
@@ -35,9 +42,12 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const { SimHostController } = await import(join(root, 'lib', 'sim-host.js'))
 const { listDevices, bootDevice, shutdownDevice, bootedDevices } = await import(join(root, 'lib', 'simctl.js'))
 const {
+  DEVICES_ROUTE_PATH,
   GRANT_ROUTE_PATH,
   SCREENSHOT_ROUTE_PREFIX,
+  STATUS_ROUTE_PATH,
   STREAM_ROUTE_PREFIX,
+  SWITCH_DEVICE_ROUTE_PATH,
   StreamAccessController,
   StreamRoutes,
   WS_ROUTE_PATH,
@@ -165,6 +175,23 @@ function sendHidFrame(ws, tag, payload) {
   ws.send(frame)
 }
 
+/** POST `path` against `originBase` with an abort timeout (booting a second
+ * simulator inside switch-device can take a while). */
+async function postRoute(originBase, path, body, { contentType = 'application/json', timeoutMs = 420_000, headers = {} } = {}) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(`${originBase}${path}`, {
+      method: 'POST',
+      headers: { 'content-type': contentType, ...headers },
+      body,
+      signal: controller.signal,
+    })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 /** Poll serve-sim's event log until a tap with the wanted coordinates appears. */
 async function waitForTapEvent(port, udid, x, y, timeoutMs) {
   const deadline = Date.now() + timeoutMs
@@ -213,6 +240,7 @@ function step(name, ok, detail = '') {
 let controller
 let udid
 let deviceName
+let secondUdid
 let mini
 let disposeRoutes
 let routes
@@ -230,19 +258,32 @@ try {
   if (!status0.available) throw new Error('serve-sim unavailable; cannot continue')
 
   const devices = await listDevices()
+  // Prefer a SHUTDOWN iPhone: a live DSH instance may already have one
+  // booted (this smoke must never shut down or fight a device another host
+  // streams). The pre-existing booted set also scopes the final
+  // "no simulators left" check to what this smoke booted.
+  const initialBootedUdidSet = new Set((await bootedDevices()).map(d => d.udid))
   const iphones = devices.filter(d => d.name.startsWith('iPhone'))
   if (iphones.length === 0) throw new Error('no available iPhone simulators')
   const byRuntime = (a, b) => b.runtime.localeCompare(a.runtime, undefined, { numeric: true })
   const ios26 = iphones.filter(d => d.runtime.includes('iOS-26')).sort(byRuntime)
   const fallback = iphones.sort(byRuntime)
-  const picked = (ios26.length > 0 ? ios26 : fallback)[0]
+  const candidates = ios26.length > 0 ? ios26 : fallback
+  const picked = candidates.find(d => d.state !== 'Booted') ?? candidates[0]
   udid = picked.udid
   deviceName = picked.name
-  step('pick iPhone simulator', true, `${deviceName} (${picked.runtime}, ${udid})`)
+  step('pick a SHUTDOWN iPhone simulator', picked.state !== 'Booted', `${deviceName} (${picked.runtime}, ${udid})`)
 
   controller.startKeepAlive()
   await bootDevice(udid)
-  step('boot simulator', true, `${deviceName} booted`)
+  // `bootstatus -b` can resolve just before `simctl list devices` flips the
+  // entry to Booted; poll briefly so the very next grant sees it booted.
+  const bootDeadline = Date.now() + 30_000
+  while (Date.now() < bootDeadline) {
+    if ((await bootedDevices()).some(device => device.udid === udid)) break
+    await delay(500)
+  }
+  step('boot simulator', (await bootedDevices()).some(device => device.udid === udid), `${deviceName} booted`)
 
   // ── 2. mount the route handlers on a loopback http server ─────────────────
   routes = new StreamRoutes(controller, new StreamAccessController())
@@ -382,6 +423,169 @@ try {
   await delay(400)
   step('ws close releases the consumer refcount', controller.status().consumers === 0, `consumers=${controller.status().consumers}`)
 
+  // ── 6b. device switch: fence, listing shape, 409, happy path ──────────────
+
+  // fence: the switch-device route shares /grant's loopback/trusted fence.
+  const noOriginSwitch = await postRoute(origin, SWITCH_DEVICE_ROUTE_PATH, JSON.stringify({ device: udid }))
+  step('switch-device rejects a request without Origin → 403', noOriginSwitch.status === 403, `HTTP ${noOriginSwitch.status}`)
+
+  const wrongTypeSwitch = await postRoute(
+    origin,
+    SWITCH_DEVICE_ROUTE_PATH,
+    JSON.stringify({ device: udid }),
+    { contentType: 'text/plain', headers: { origin } },
+  )
+  step('switch-device requires application/json → 415', wrongTypeSwitch.status === 415, `HTTP ${wrongTypeSwitch.status}`)
+
+  const getSwitch = await fetch(`${origin}${SWITCH_DEVICE_ROUTE_PATH}`, { method: 'GET', headers: { origin } })
+  step('switch-device rejects GET → 405', getSwitch.status === 405, `HTTP ${getSwitch.status}`)
+
+  const badJsonSwitch = await postRoute(origin, SWITCH_DEVICE_ROUTE_PATH, '{"device":', { headers: { origin } })
+  step('switch-device rejects malformed JSON → 400', badJsonSwitch.status === 400, `HTTP ${badJsonSwitch.status}`)
+
+  const badBodySwitch = await postRoute(origin, SWITCH_DEVICE_ROUTE_PATH, JSON.stringify({ device: 123 }), { headers: { origin } })
+  step('switch-device rejects a non-udid device body → 400', badBodySwitch.status === 400, `HTTP ${badBodySwitch.status}`)
+
+  const unknownSwitch = await postRoute(
+    origin,
+    SWITCH_DEVICE_ROUTE_PATH,
+    JSON.stringify({ device: '00000000-0000-0000-0000-000000000000' }),
+    { headers: { origin } },
+  )
+  step('switch-device unknown device → 409', unknownSwitch.status === 409, `HTTP ${unknownSwitch.status}`)
+
+  // devices listing: shape + booted-first + runtime descending + cap.
+  const noOriginDevices = await postRoute(origin, DEVICES_ROUTE_PATH, JSON.stringify({}))
+  step('devices listing shares the trusted fence → 403 without Origin', noOriginDevices.status === 403, `HTTP ${noOriginDevices.status}`)
+
+  const devicesResponse = await postRoute(origin, DEVICES_ROUTE_PATH, JSON.stringify({}), { headers: { origin } })
+  const devicesBody = await devicesResponse.json().catch(() => ({}))
+  const devicesList = Array.isArray(devicesBody.devices) ? devicesBody.devices : []
+  const listingShapeOk = devicesResponse.status === 200
+    && devicesBody.ok === true
+    && devicesList.length > 0
+    && devicesList.every(device => typeof device.udid === 'string' && typeof device.name === 'string' && typeof device.runtime === 'string' && typeof device.state === 'string')
+  step(
+    'devices endpoint lists pickable simulators as [{udid,name,runtime,state}]',
+    listingShapeOk,
+    `HTTP ${devicesResponse.status} entries=${devicesList.length}`,
+  )
+  step('devices list is capped at 40', devicesList.length <= 40, `entries=${devicesList.length}`)
+  const devicesBootedFirst = devicesList.every((device, index) => {
+    if (device.state !== 'Booted') return true
+    return devicesList.slice(0, index).every(previous => previous.state === 'Booted')
+  })
+  step('devices list sorts booted first', devicesBootedFirst && devicesList.some(device => device.state === 'Booted'), devicesList.map(d => `${d.name}:${d.state}`).slice(0, 6).join(', '))
+  const devicesRuntimeDesc = devicesList.every((device, index) => {
+    const previous = devicesList[index - 1]
+    if (previous === undefined || previous.state !== device.state) return true
+    return previous.runtime.localeCompare(device.runtime, undefined, { numeric: true }) >= 0
+  })
+  step('devices list sorts each state segment by runtime descending', devicesRuntimeDesc, 'newest runtime first within booted/shutdown segments')
+
+  // status route still reports the pre-switch stream shape.
+  const statusResponse = await postRoute(origin, STATUS_ROUTE_PATH, JSON.stringify({}), { headers: { origin } })
+  const statusBody = await statusResponse.json().catch(() => ({}))
+  step(
+    'status endpoint reports the running stream for the first device',
+    statusResponse.status === 200
+      && statusBody.ok === true
+      && statusBody.running === true
+      && statusBody.device === udid
+      && statusBody.deviceName === deviceName,
+    `HTTP ${statusResponse.status} device=${statusBody.device}`,
+  )
+
+  // happy path: switch to a SECOND, shutdown simulator — the route itself
+  // must boot it (the documented exception to grant's never-boot rule).
+  const second = devices.find(d => d.name.startsWith('iPhone') && d.udid !== udid && d.state !== 'Booted')
+    ?? devices.find(d => d.udid !== udid && d.state !== 'Booted')
+  if (second === undefined) throw new Error('no second (shutdown) simulator to switch to')
+  secondUdid = second.udid
+  step('pick a second, SHUTDOWN simulator for the switch', second.state !== 'Booted', `${second.name} (${second.runtime}, ${second.udid})`)
+
+  const switchResponse = await postRoute(origin, SWITCH_DEVICE_ROUTE_PATH, JSON.stringify({ device: second.udid }), { headers: { origin } })
+  const switched = await switchResponse.json().catch(() => ({}))
+  step(
+    'switch-device boots + streams the second simulator',
+    switchResponse.status === 200
+      && switched.ok === true
+      && switched.device === second.udid
+      && switched.deviceName === second.name,
+    `HTTP ${switchResponse.status}`,
+  )
+  step(
+    'switch-device mints fresh relative capability URLs (grant shape + device)',
+    typeof switched.streamUrl === 'string'
+      && switched.streamUrl.startsWith(`${STREAM_ROUTE_PREFIX}/`)
+      && typeof switched.wsUrl === 'string'
+      && switched.wsUrl.startsWith(`${WS_ROUTE_PATH}?token=`)
+      && !switched.streamUrl.includes('127.0.0.1')
+      && !switched.wsUrl.includes(':')
+      && typeof switched.expiresAt === 'number'
+      && switched.expiresAt > Date.now()
+      && switched.expiresAt - Date.now() <= 10 * 60 * 1000,
+    `streamUrl=${switched.streamUrl} expiresAt=${switched.expiresAt}`,
+  )
+  const switchedStatus = controller.status()
+  step(
+    'the stream follows the switch (old stream retired, refcounts sane)',
+    switchedStatus.running === true
+      && switchedStatus.device === second.udid
+      && switchedStatus.consumers === 0
+      && switchedStatus.restarts === 0,
+    `device=${switchedStatus.device} consumers=${switchedStatus.consumers} restarts=${switchedStatus.restarts}`,
+  )
+  const bootedAfterSwitch = await bootedDevices()
+  step('the second simulator is booted', bootedAfterSwitch.some(device => device.udid === second.udid), second.name)
+  step('the first simulator stays booted (only the stream switched)', bootedAfterSwitch.some(device => device.udid === udid), deviceName)
+
+  // The first device's token is still cryptographically valid but names the
+  // retired device: the stream route must refuse it.
+  const oldStreamResponse = await fetch(origin + grant.streamUrl)
+  step('the old device token no longer streams (stream follows the switch)', oldStreamResponse.status === 503, `HTTP ${oldStreamResponse.status}`)
+
+  // REGRESSION (the silent-rollback bug): granting for the PREVIOUS device
+  // while another one streams must be refused, not obeyed. /grant used to
+  // call ensureRunning here, so any stale-udid re-grant (a panel that missed
+  // a switch, a queued retry) yanked the stream back to the old device while
+  // the picker still showed the new one — the UI then lied about the server.
+  const staleGrant = await postRoute(origin, GRANT_ROUTE_PATH, JSON.stringify({ kind: 'sim-stream', device: udid }), { headers: { origin } })
+  const staleGrantBody = await staleGrant.json().catch(() => ({}))
+  const statusAfterStale = await postRoute(origin, STATUS_ROUTE_PATH, JSON.stringify({}), { headers: { origin } })
+  const statusAfterStaleBody = await statusAfterStale.json().catch(() => ({}))
+  step(
+    'a grant for the previous device is refused, never a silent takeover',
+    staleGrant.status === 409
+      && typeof staleGrantBody.error === 'string'
+      && staleGrantBody.error.includes('another simulator is streaming')
+      && statusAfterStaleBody.device === second.udid,
+    `HTTP ${staleGrant.status}; still streaming ${statusAfterStaleBody.deviceName ?? statusAfterStaleBody.device}`,
+  )
+
+  const switchedStreamResult = await fetchBytes(origin + switched.streamUrl, 2500)
+  step(
+    'the switched stream proxies MJPEG for the new device',
+    switchedStreamResult.status === 200
+      && switchedStreamResult.contentType.startsWith('multipart/x-mixed-replace')
+      && switchedStreamResult.received > 1024,
+    `content-type=${switchedStreamResult.contentType} ${(switchedStreamResult.received / 1024).toFixed(1)} KB`,
+  )
+  await delay(300)
+  step('the switch leaves the consumer refcount clean', controller.status().consumers === 0, `consumers=${controller.status().consumers}`)
+
+  const statusAfterSwitch = await postRoute(origin, STATUS_ROUTE_PATH, JSON.stringify({}), { headers: { origin } })
+  const statusAfterBody = await statusAfterSwitch.json().catch(() => ({}))
+  step(
+    'status endpoint follows the switch (second device, first name)',
+    statusAfterSwitch.status === 200
+      && statusAfterBody.ok === true
+      && statusAfterBody.running === true
+      && statusAfterBody.device === second.udid
+      && statusAfterBody.deviceName === second.name,
+    `HTTP ${statusAfterSwitch.status} device=${statusAfterBody.device}`,
+  )
+
   // ── 7. expired / garbage tokens are rejected ──────────────────────────────
   const garbageResponse = await fetch(origin + `${STREAM_ROUTE_PREFIX}/garbage.token`)
   step('garbage token → 403', garbageResponse.status === 403, `HTTP ${garbageResponse.status}`)
@@ -417,9 +621,15 @@ try {
   await controller.dispose()
   step('sim host dispose settles', true)
   await shutdownDevice(udid)
-  step('simulator shut down', true)
-  const leftDevices = (await bootedDevices()).map(d => `${d.name} ${d.udid}`)
-  step('no booted simulators left', leftDevices.length === 0, leftDevices.join(', ') || 'none')
+  if (secondUdid !== undefined) await shutdownDevice(secondUdid)
+  step('both smoke-booted simulators shut down', true)
+  // Only what THIS smoke booted must be shut down again: a live DSH
+  // instance's booted device (and any user device) is deliberately left
+  // alone.
+  const leftDevices = (await bootedDevices())
+    .filter(d => !initialBootedUdidSet.has(d.udid))
+    .map(d => `${d.name} ${d.udid}`)
+  step('no smoke-booted simulators left', leftDevices.length === 0, leftDevices.join(', ') || 'none')
 } catch (error) {
   step('smoke completed without uncaught errors', false, error instanceof Error ? error.message : String(error))
   console.error(error)
@@ -437,8 +647,15 @@ try {
     if (udid !== undefined) await shutdownDevice(udid)
   } catch { /* already shut down */ }
   try {
-    execFileSync('pkill', ['-f', 'serve-sim'], { stdio: 'ignore', timeout: 10_000 })
-  } catch { /* pkill exit 1 = nothing to kill */ }
+    if (secondUdid !== undefined && secondUdid !== udid) await shutdownDevice(secondUdid)
+  } catch { /* already shut down */ }
+  // Reap only serve-sim stragglers for the devices THIS smoke streamed —
+  // never a blanket pkill, which could kill a live DSH instance's helper.
+  for (const stragglerUdid of [...new Set([udid, secondUdid].filter(value => value !== undefined))]) {
+    try {
+      execFileSync('pkill', ['-f', `serve-sim .*${stragglerUdid}`], { stdio: 'ignore', timeout: 10_000 })
+    } catch { /* pkill exit 1 = nothing to kill */ }
+  }
 }
 
 const failed = results.filter(r => !r.ok)

@@ -33,6 +33,7 @@ import {
   getDevice,
   type SimulatorDevice,
 } from './simctl.js'
+import { matchesRealDevice } from './devicectl.js'
 import type { SimDeviceInfo } from './tools.js'
 
 /** Error prefix required on non-macOS hosts (same text as tools.ts). */
@@ -451,6 +452,14 @@ export function createSimLogTools(host: SimHostController): SimLogTools {
     isConcurrencySafe: () => true,
     async execute(args: SimLogsArgs, exec) {
       assertLogsAvailable()
+      const reference = args.udid?.trim() ?? ''
+      if (reference !== '' && await matchesRealDevice(reference, exec.signal)) {
+        throw new Error(
+          'ios_sim_logs: unified-log capture for physical devices is not available yet — devicectl has no '
+          + 'log subcommand and `xcrun log collect --device-udid` requires root, so real-device logs are '
+          + 'skipped in this phase (revisit with a later phase).',
+        )
+      }
       const mode = args.mode ?? 'snapshot'
       const device = await resolveLogDevice(host, args.udid)
       if (device.state !== 'Booted') {

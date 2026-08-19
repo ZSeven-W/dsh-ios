@@ -39,9 +39,10 @@
     "src",
     "scripts",
     "assets/preview-host/**",
+    "assets/ocr.swift",
     "cordis.patch.yml",
     "README.md",
-    "README.zh.md",
+    "README.*.md",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md"
   ],

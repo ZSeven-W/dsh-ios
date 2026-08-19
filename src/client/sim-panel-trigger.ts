@@ -69,6 +69,16 @@ export function simPanelSourcesVersion(): number {
 }
 
 /**
+ * A point-in-time snapshot of every registered source. The panel's
+ * auto-follow engine (see sim-panel-follow.ts) scans it for the newest
+ * settled result of the current session and re-targets to that result's
+ * device.
+ */
+export function simPanelSourcesSnapshot(): SimulatorPanelSource[] {
+  return Array.from(sources.values())
+}
+
+/**
  * True while at least one registered source belongs to the given session.
  * This is the capsule's session gate: a new empty session has no sources, so
  * the capsule stays hidden there even while the global stream runs.

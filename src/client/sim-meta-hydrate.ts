@@ -22,6 +22,9 @@
  *   one shared `screenshotMeta` projector for both tools)
  * - `ios_sim_build_run`  → `{ kind:'sim-build-run', device, bundleId,
  *   appPath }`
+ * - `ios_real_start_wda` → `{ kind:'sim-real-start', device }` (the tool
+ *   projects NO presentationMeta, so this is the only path for the panel to
+ *   adopt the phone into real-device mode and show the WDA progress surface)
  *
  * Reconstructed screenshot paths are still validated as absolute paths here;
  * the host `/grant` route re-validates every path against the plugin cache
@@ -118,6 +121,20 @@ function hydrateBuildRunMeta(value: unknown): SimMeta | null {
   return { kind: 'sim-build-run', device, bundleId, appPath }
 }
 
+/**
+ * `ios_real_start_wda` → the `sim-real-start` envelope. The tool has NO
+ * projected presentationMeta (renderJson only), so this is the ONE path for
+ * the panel to learn the phone's udid and adopt it into real-device mode.
+ * `ready` must be true for a settled success (the schema pins it), which also
+ * keeps an error/partial result from ever hydrating.
+ */
+function hydrateRealStartMeta(value: unknown): SimMeta | null {
+  if (!isRecord(value) || value.ready !== true) return null
+  const device = parseDevice(value.device)
+  if (device === undefined) return null
+  return { kind: 'sim-real-start', device }
+}
+
 /** Rebuild the meta for one settled, non-error tool result (or null). */
 function hydrateSimMetaValue(toolName: string, value: Record<string, unknown>): SimMeta | null {
   if (toolName === IOS_SIM_CARD_TOOLS.boot) return hydrateStreamMeta(value)
@@ -125,6 +142,7 @@ function hydrateSimMetaValue(toolName: string, value: Record<string, unknown>): 
     return hydrateScreenshotMeta(value, toolName === IOS_SIM_CARD_TOOLS.interact)
   }
   if (toolName === IOS_SIM_CARD_TOOLS.buildRun) return hydrateBuildRunMeta(value)
+  if (toolName === IOS_SIM_CARD_TOOLS.realStart) return hydrateRealStartMeta(value)
   return null
 }
 

@@ -15,6 +15,12 @@ import { readFile } from 'node:fs/promises'
 import { basename, dirname, join, normalize, resolve } from 'node:path'
 import type { Readable } from 'node:stream'
 import { installApp, launchApp, type SimulatorDevice } from './simctl.js'
+import {
+  detectAppleDevelopmentIdentity,
+  installApp as installAppOnDevice,
+  launchApp as launchAppOnDevice,
+  type RealDevice,
+} from './devicectl.js'
 
 /** How `projectPath` is fed to xcodebuild. */
 export type ProjectKind = 'xcodeproj' | 'xcworkspace' | 'package'
@@ -34,11 +40,29 @@ export interface BuildInvocation {
   /** xcodebuild scheme name; omitted means "let xcodebuild pick" (project/workspace only). */
   scheme?: string
   configuration: string
-  /** Simulator destination udid. */
+  /** Destination udid (simulator udid or physical-device identifier). */
   udid: string
   /** `-derivedDataPath` value (plugin-owned cache). */
   derivedDataPath: string
+  /** Build platform; defaults to 'simulator' for backwards compatibility. */
+  platform?: 'simulator' | 'device'
+  /**
+   * Device builds only: automatic-signing settings derived from the login
+   * keychain's Apple Development identity. `-allowProvisioningUpdates` is
+   * deliberately NOT passed — provisioning-profile creation is an Xcode
+   * account operation; existing local profiles are used as-is and the
+   * failure hint explains the signing requirements when none match.
+   */
+  signing?: { teamId?: string }
 }
+
+/**
+ * Build target device: a simulator or a USB-connected physical device.
+ * Discriminated so the install/launch steps can route to simctl vs devicectl.
+ */
+export type BuildDevice =
+  | { kind: 'simulator'; device: SimulatorDevice }
+  | { kind: 'device'; device: RealDevice }
 
 /** Successful outcome of build + install + launch. */
 export interface BuildRunResult {
@@ -46,16 +70,18 @@ export interface BuildRunResult {
     udid: string
     name: string
     runtime: string
-    state: 'Booted'
+    state: string
   }
   state: 'launched'
   bundleId: string
-  /** PID reported by `simctl launch`, or '' when it did not parse. */
+  /** PID reported by `simctl launch`/`devicectl process launch`, or '' when it did not parse. */
   pid: string
   appPath: string
   projectPath: string
   scheme?: string
   configuration: string
+  /** True when the app was installed/launched on a physical device. */
+  physicalDevice?: boolean
 }
 
 const LIST_TIMEOUT_MS = 60_000
@@ -95,21 +121,31 @@ export function detectProject(projectPath: string): ProjectTarget {
 }
 
 /**
- * Assemble the exact `xcodebuild` argument vector for the simulator build.
- * Exported for dry-run verification.
+ * Assemble the exact `xcodebuild` argument vector for the build. Simulator
+ * builds target `platform=iOS Simulator,id=<udid>`; device builds target
+ * `platform=iOS,id=<udid>` and append automatic code-signing settings
+ * (CODE_SIGN_STYLE=Automatic + DEVELOPMENT_TEAM) when a signing team is
+ * known. Exported for dry-run verification.
  */
 export function assembleBuildArgs(invocation: BuildInvocation): string[] {
   const { target, configuration, udid, derivedDataPath } = invocation
+  const platform = invocation.platform ?? 'simulator'
   const args: string[] = []
   if (target.kind === 'xcodeproj') args.push('-project', target.location)
   else if (target.kind === 'xcworkspace') args.push('-workspace', target.location)
   if (invocation.scheme !== undefined) args.push('-scheme', invocation.scheme)
   args.push(
     '-configuration', configuration,
-    '-destination', `platform=iOS Simulator,id=${udid}`,
+    '-destination', `${platform === 'device' ? 'platform=iOS,id=' : 'platform=iOS Simulator,id='}${udid}`,
     '-derivedDataPath', derivedDataPath,
-    'build',
   )
+  if (platform === 'device') {
+    args.push('CODE_SIGN_STYLE=Automatic')
+    if (invocation.signing?.teamId !== undefined) {
+      args.push(`DEVELOPMENT_TEAM=${invocation.signing.teamId}`)
+    }
+  }
+  args.push('build')
   return args
 }
 
@@ -235,9 +271,18 @@ export function buildFailureDetail(lines: string[]): string {
   return tail.length === 0 ? '(no output captured)' : tail.join('\n')
 }
 
-/** Locate the freshly built `.app` under the DerivedData products directory. */
-export function findBuiltApp(derivedDataPath: string, configuration: string, productHint?: string): string | undefined {
-  const products = join(derivedDataPath, 'Build', 'Products', `${configuration}-iphonesimulator`)
+/**
+ * Locate the freshly built `.app` under the DerivedData products directory
+ * for the target SDK (`-iphonesimulator` for simulators, `-iphoneos` for
+ * physical devices).
+ */
+export function findBuiltApp(
+  derivedDataPath: string,
+  configuration: string,
+  productHint?: string,
+  sdkSuffix: 'iphonesimulator' | 'iphoneos' = 'iphonesimulator',
+): string | undefined {
+  const products = join(derivedDataPath, 'Build', 'Products', `${configuration}-${sdkSuffix}`)
   if (!existsSync(products)) return undefined
   const apps = readdirSync(products)
     .filter(name => name.endsWith('.app'))
@@ -280,42 +325,110 @@ export interface BuildRunOptions {
   target: ProjectTarget
   scheme?: string
   configuration: string
-  device: SimulatorDevice
+  /** Simulator or physical device to install/launch onto. */
+  device: BuildDevice
   cacheDir: string
   signal: AbortSignal
 }
 
+/** Actionable code-signing explanation shown when no identity exists. */
+export const DEVICE_SIGNING_HINT =
+  'building and installing on a physical iPhone requires code signing with an "Apple Development" '
+  + 'certificate in the login keychain (security find-identity -v -p codesigning). '
+  + 'With an identity present, xcodebuild automatic signing (CODE_SIGN_STYLE=Automatic + DEVELOPMENT_TEAM) '
+  + 'uses the provisioning profiles already installed on this Mac; when none covers the app, create one '
+  + 'in Xcode (Signing & Capabilities) or run the build with -allowProvisioningUpdates once (requires an '
+  + 'authenticated Apple ID session). Also install the iOS platform matching the device\u2019s OS version '
+  + '(Xcode → Settings → Components).'
+
+/** Extra guidance appended to device-build failures. */
+function deviceFailureHint(lines: string[]): string {
+  const tail = lines.join('\n')
+  if (/is not installed[\s\S]*Settings > Components|download and install the platform/i.test(tail)) {
+    return '\nThe iOS platform matching the device\u2019s OS is not installed on this Mac — '
+      + 'install it via Xcode → Settings → Components, then retry.'
+  }
+  if (/provisioning profile|code signing|signing for|development team|requires a development team/i.test(tail)) {
+    return '\nCode-signing note: ' + DEVICE_SIGNING_HINT
+  }
+  return ''
+}
+
 /**
- * Full pipeline: build → find the app → install → launch. Throws with the
- * filtered xcodebuild tail on build failure so the model sees the actionable
- * compiler errors instead of thousands of progress lines.
+ * Full pipeline: build → find the app → install → launch. Simulator targets
+ * route install/launch through simctl; physical devices build with
+ * `-destination platform=iOS,id=<udid>`, require an Apple Development
+ * signing identity (checked up front, with an actionable error when absent),
+ * and install/launch through devicectl. Build failures throw with the
+ * filtered xcodebuild tail plus, for device builds, a signing/platform hint.
  */
 export async function buildRun(options: BuildRunOptions): Promise<BuildRunResult> {
   const { target, configuration, device, cacheDir, signal } = options
+  const platform: 'simulator' | 'device' = device.kind
+  let signing: { teamId?: string } | undefined
+  if (device.kind === 'device') {
+    const identity = await detectAppleDevelopmentIdentity(signal)
+    if (identity === undefined) {
+      throw new Error(
+        `ios_sim_build_run: no valid Apple Development signing identity was found in the login keychain — ${DEVICE_SIGNING_HINT}`,
+      )
+    }
+    signing = { ...(identity.teamId === undefined ? {} : { teamId: identity.teamId }) }
+  }
+  const udid = device.device.udid
   const derivedDataPath = join(cacheDir, 'builds', projectSlug(target.location), 'DerivedData')
   const scheme = await resolveScheme(target, options.scheme, signal)
-  const invocation: BuildInvocation = { target, scheme, configuration, udid: device.udid, derivedDataPath }
+  const invocation: BuildInvocation = {
+    target,
+    scheme,
+    configuration,
+    udid,
+    derivedDataPath,
+    platform,
+    signing,
+  }
 
   const { exitCode, lines } = await runXcodeBuild(invocation, signal)
   if (exitCode !== 0) {
     throw new Error(
-      `xcodebuild failed (exit ${String(exitCode)}) for ${normalize(target.location)}:\n${buildFailureDetail(lines)}`,
+      `xcodebuild failed (exit ${String(exitCode)}) for ${normalize(target.location)}:\n${buildFailureDetail(lines)}`
+      + (platform === 'device' ? deviceFailureHint(lines) : ''),
     )
   }
-  const appPath = findBuiltApp(derivedDataPath, configuration, scheme)
+  const appPath = findBuiltApp(derivedDataPath, configuration, scheme, platform === 'device' ? 'iphoneos' : 'iphonesimulator')
   if (appPath === undefined) {
     throw new Error(
       `xcodebuild finished but no .app bundle was found under ${derivedDataPath} — `
-      + 'check the scheme/configuration produce an iOS Simulator app',
+      + `check the scheme/configuration produce an iOS ${platform === 'device' ? 'device' : 'Simulator'} app`,
     )
   }
   const bundleId = await readBundleIdentifier(appPath, signal)
-  await installApp(device.udid, appPath, signal)
-  const launchOutput = await launchApp(device.udid, bundleId, signal)
+  if (device.kind === 'device') {
+    await installAppOnDevice(udid, appPath, signal)
+    const { pid } = await launchAppOnDevice(udid, bundleId, signal)
+    return {
+      device: {
+        udid,
+        name: device.device.name,
+        runtime: device.device.osVersion ?? '',
+        state: device.device.state,
+      },
+      state: 'launched',
+      bundleId,
+      pid: pid === undefined ? '' : String(pid),
+      appPath,
+      projectPath: target.location,
+      ...(scheme === undefined ? {} : { scheme }),
+      configuration,
+      physicalDevice: true,
+    }
+  }
+  await installApp(udid, appPath, signal)
+  const launchOutput = await launchApp(udid, bundleId, signal)
   // `simctl launch` prints `<bundle-id>: <pid>`.
   const pidMatch = /:\s*(\d+)\s*$/u.exec(launchOutput.trim())
   return {
-    device: { udid: device.udid, name: device.name, runtime: device.runtime, state: 'Booted' },
+    device: { udid, name: device.device.name, runtime: device.device.runtime, state: 'Booted' },
     state: 'launched',
     bundleId,
     pid: pidMatch === null ? '' : pidMatch[1],

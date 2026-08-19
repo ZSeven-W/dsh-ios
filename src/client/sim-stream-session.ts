@@ -17,6 +17,12 @@
  * stream server-side per the `/grant` semantics. Unmount closes the
  * WebSocket and drops the img src.
  *
+ * Device switch: a `seededGrant` (the switch-device response's fresh
+ * capability URLs) is applied exactly once, on the grant cycle whose udid
+ * matches the seed — the panel hands it over together with the new device
+ * meta, so the swap closes the old stream and lands the new one without a
+ * second round trip. Every later re-grant goes through `/grant` normally.
+ *
  * `onConnectionChange` additionally observes the control WebSocket
  * open/close transitions so the panel can drive its "● Live" indicator.
  */
@@ -30,6 +36,7 @@ import {
   parseSimConfigFrame,
   requestStreamGrant,
   resolveWsUrl,
+  simRouteErrorTextOf,
   simButtonFrame,
   simRotateFrame,
   simTouchFrame,
@@ -44,6 +51,32 @@ import { simFramebufferPointOf } from './sim-orientation.js'
 
 export type SimStreamPhase = 'granting' | 'live' | 'fallback'
 
+/**
+ * Post-switch cold-boot settle watchdog tuning: after a device switch seeds
+ * the stream, re-grant every 4s while neither the ws is open nor a frame has
+ * drawn, up to 10 attempts (~40s — covers a simulator cold boot), then fall
+ * back with the retry affordance. The tight cadence matters because a
+ * cold-booting device refuses the relay outright (the ws upgrade fails in
+ * under a second), so the first productive attempt should come quickly.
+ * Exported for the smoke's assertions.
+ */
+export const SIM_SWITCH_SETTLE_INTERVAL_MS = 4000
+export const SIM_SWITCH_SETTLE_ATTEMPTS = 10
+
+/**
+ * A pre-minted capability the stream session may adopt instead of POSTing
+ * /grant: the device-switch flow hands over the switch-device response's
+ * fresh URLs so the new stream lands without a second round trip. Applied
+ * exactly once (the next grant cycle whose udid matches); later re-grants
+ * (refresh, ws death, token expiry) go through /grant normally.
+ */
+export interface SimSeededGrant {
+  udid: string
+  streamUrl: string
+  wsUrl: string
+  expiresAt?: number
+}
+
 export interface SimStreamSessionOptions {
   /** Stream presentationMeta (absent only for a disabled session). */
   meta?: SimStreamMeta
@@ -56,6 +89,10 @@ export interface SimStreamSessionOptions {
   /** When false the grant effect never runs (the panel owns one session per
    * render but only activates it for stream-mode results). Default true. */
   enabled?: boolean
+  /** One-shot pre-minted capability (device switch) — see SimSeededGrant. */
+  seededGrant?: SimSeededGrant
+  /** Locale table (simCopy) used to localize route failure codes. */
+  copy?: Record<string, string>
 }
 
 export interface SimStreamSession {
@@ -89,7 +126,7 @@ export interface SimStreamSession {
  * frame it however it likes.
  */
 export function useSimStream(options: SimStreamSessionOptions): SimStreamSession {
-  const { meta, fetcher, wsFactory, unavailableCopy, onConnectionChange, enabled = true } = options
+  const { meta, fetcher, wsFactory, unavailableCopy, onConnectionChange, enabled = true, seededGrant, copy } = options
   const udid = meta?.device?.udid
   const [phase, setPhase] = useState<SimStreamPhase>('granting')
   const [grant, setGrant] = useState<{ streamUrl: string }>()
@@ -105,15 +142,46 @@ export function useSimStream(options: SimStreamSessionOptions): SimStreamSession
   const orientationRef = useRef<string>()
   const connectionRef = useRef(onConnectionChange)
   connectionRef.current = onConnectionChange
+  const copyRef = useRef<Record<string, string>>(copy ?? {})
+  copyRef.current = copy ?? {}
+  /** The seeded grant object already applied (one-shot consumption). */
+  const consumedSeedRef = useRef<SimSeededGrant>()
+  /** Cold-boot settle budget for the device-switch flow. It must SURVIVE the
+   * re-grant cycles it triggers: each re-grant re-runs the connect effect,
+   * whose cleanup clears only the TIMER (settleTimerRef) — the attempt
+   * budget lives here and is cleared only when the ws opens / a frame
+   * arrives, when the budget is exhausted, or when a new switch reseeds. */
+  const switchSettleRef = useRef<{ attemptsLeft: number }>()
+  const settleTimerRef = useRef<ReturnType<typeof setInterval>>()
   const makeWs = wsFactory ?? openBrowserSimWebSocket
+
+  const clearSettleTimer = useCallback((): void => {
+    if (settleTimerRef.current !== undefined) {
+      clearInterval(settleTimerRef.current)
+      settleTimerRef.current = undefined
+    }
+  }, [])
 
   const reportConnection = useCallback((open: boolean): void => {
     setWsOpen(open)
     connectionRef.current?.(open)
-  }, [])
+    // The ws opening proves the stream settled: retire the switch watchdog.
+    if (open && switchSettleRef.current !== undefined) {
+      switchSettleRef.current = undefined
+      clearSettleTimer()
+    }
+  }, [clearSettleTimer])
 
   /** One automatic re-grant, then the static fallback. */
   const autoReGrant = useCallback((): void => {
+    // A switch stint owns the retry cadence. A cold-booting device closes
+    // the relay again within ~1s of every attempt, so letting this path run
+    // during a stint burned the one-shot budget and dropped to the fallback
+    // in under two seconds — before the settle timer's first tick. The timer
+    // re-grants on its own schedule and declares the fallback itself once
+    // the budget is spent, so a ws death here is simply reported (the
+    // indicator goes gray) and left to it.
+    if (switchSettleRef.current !== undefined) return
     if (autoRetriedRef.current) {
       setFailure(unavailableCopy)
       setPhase('fallback')
@@ -122,6 +190,43 @@ export function useSimStream(options: SimStreamSessionOptions): SimStreamSession
       setAttempt(current => current + 1)
     }
   }, [unavailableCopy])
+
+  /** Arm the settle timer for the current connect cycle. No-ops unless a
+   * switch budget is active. Each tick: settled (ws open OR a frame drawn)
+   * → retire; budget left → spend one attempt and re-grant (the effect
+   * re-run restarts this timer); exhausted → explicit fallback so the user
+   * sees 重试 instead of a stale black frame. */
+  const startSettleTimer = useCallback((): void => {
+    if (switchSettleRef.current === undefined) return
+    clearSettleTimer()
+    const tick = (): void => {
+      const settle = switchSettleRef.current
+      if (settle === undefined) {
+        clearSettleTimer()
+        return
+      }
+      const ws = wsRef.current
+      const img = imgRef.current
+      const wsLive = ws !== undefined && ws.readyState === WEB_SOCKET_OPEN
+      const frameLive = img !== null && img.naturalWidth > 0
+      if (wsLive || frameLive) {
+        switchSettleRef.current = undefined
+        clearSettleTimer()
+        return
+      }
+      if (settle.attemptsLeft > 0) {
+        settle.attemptsLeft -= 1
+        autoRetriedRef.current = false
+        setAttempt(current => current + 1)
+      } else {
+        switchSettleRef.current = undefined
+        clearSettleTimer()
+        setFailure(unavailableCopy)
+        setPhase('fallback')
+      }
+    }
+    settleTimerRef.current = setInterval(tick, SIM_SWITCH_SETTLE_INTERVAL_MS)
+  }, [clearSettleTimer, unavailableCopy])
 
   /** Manual refresh: clear the auto-retry budget and re-grant. */
   const refresh = useCallback((): void => {
@@ -141,18 +246,25 @@ export function useSimStream(options: SimStreamSessionOptions): SimStreamSession
     setFailure('')
     reportConnection(false)
 
-    void requestStreamGrant(fetcher ?? fetch, { device: udid === undefined ? {} : { udid } }).then(result => {
-      if (disposed || generation !== generationRef.current) return
-      if (!result.ok) {
-        // Initial grant failure (403/404/unavailable host) → static fallback.
-        setFailure(result.error)
-        setPhase('fallback')
-        return
-      }
-      setGrant(result.grant)
-      setPhase('live')
+    const cleanup = (): void => {
+      disposed = true
+      generationRef.current += 1
+      wsRef.current = undefined
       try {
-        ws = makeWs(resolveWsUrl(result.grant.wsUrl, window.location))
+        ws?.close()
+      } catch {
+        // already closed
+      }
+      imgRef.current?.removeAttribute('src')
+      // Clear only the TIMER — the switch settle budget (switchSettleRef)
+      // must survive the effect re-run its own re-grant causes.
+      clearSettleTimer()
+      reportConnection(false)
+    }
+
+    const openWs = (wsUrl: string): void => {
+      try {
+        ws = makeWs(resolveWsUrl(wsUrl, window.location))
         wsRef.current = ws
       } catch (error) {
         // A WebSocket constructor that throws still leaves the img live;
@@ -182,21 +294,40 @@ export function useSimStream(options: SimStreamSessionOptions): SimStreamSession
       // The browser fires 'close' after 'error'; the close handler above is
       // the single re-grant trigger (spec: ws close → one automatic re-grant).
       ws.addEventListener('error', () => {})
+    }
+
+    // One-shot seeded capability (the device-switch flow): apply it exactly
+    // once, on the grant cycle whose udid matches the seed. Later re-grants
+    // go through /grant normally (a stale seeded token must never be reused).
+    const seed = seededGrant
+    if (seed !== undefined && seed !== consumedSeedRef.current && seed.udid === udid) {
+      consumedSeedRef.current = seed
+      switchSettleRef.current = { attemptsLeft: SIM_SWITCH_SETTLE_ATTEMPTS }
+      setGrant({ streamUrl: seed.streamUrl })
+      setPhase('live')
+      openWs(seed.wsUrl)
+      startSettleTimer()
+      return cleanup
+    }
+
+    void requestStreamGrant(fetcher ?? fetch, { device: udid === undefined ? {} : { udid } }).then(result => {
+      if (disposed || generation !== generationRef.current) return
+      if (!result.ok) {
+        // Initial grant failure (403/404/unavailable host) → static fallback.
+        setFailure(simRouteErrorTextOf(result, copyRef.current))
+        setPhase('fallback')
+        return
+      }
+      setGrant(result.grant)
+      setPhase('live')
+      openWs(result.grant.wsUrl)
+      // A watchdog-triggered re-grant lands here: keep watching until the
+      // stream actually settles (no-op when no switch budget is active).
+      startSettleTimer()
     })
 
-    return () => {
-      disposed = true
-      generationRef.current += 1
-      wsRef.current = undefined
-      try {
-        ws?.close()
-      } catch {
-        // already closed
-      }
-      imgRef.current?.removeAttribute('src')
-      reportConnection(false)
-    }
-  }, [attempt, udid, autoReGrant, enabled, fetcher, makeWs, reportConnection])
+    return cleanup
+  }, [attempt, udid, autoReGrant, enabled, fetcher, makeWs, reportConnection, seededGrant, startSettleTimer])
 
   const sendFrame = useCallback((frame: Uint8Array): void => {
     const ws = wsRef.current

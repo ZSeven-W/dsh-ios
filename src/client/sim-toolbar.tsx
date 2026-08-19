@@ -232,6 +232,8 @@ export interface SimToolbarIconButtonProps {
   /** Localized aria-label AND tooltip text (copy.home etc.). */
   label: string
   onClick?: () => void
+  /** Optional second gesture on the same button (Home → app switcher). */
+  onDoubleClick?: () => void
   /**
    * Tooltip-open override for the static smoke: when provided it wins over
    * the internal hover/focus state (absent → the button's own state).
@@ -249,6 +251,7 @@ export function SimToolbarIconButton({
   action,
   label,
   onClick,
+  onDoubleClick,
   tooltipOpen,
 }: SimToolbarIconButtonProps): React.JSX.Element {
   const [internalOpen, setInternalOpen] = useState(false)
@@ -281,6 +284,8 @@ export function SimToolbarIconButton({
       type="button"
       style={buttonStyle}
       onClick={onClick}
+      {...(onDoubleClick === undefined ? {} : { onDoubleClick })}
+      data-sim-toolbar-double={onDoubleClick === undefined ? undefined : 'true'}
       onMouseEnter={() => { setHovered(true); scheduleOpen() }}
       onMouseLeave={close}
       onFocus={() => { setHovered(true); scheduleOpen() }}
