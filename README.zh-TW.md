@@ -39,7 +39,7 @@ DSH iOS 模擬器讓智慧代理在對話裡擁有一台真正的 iOS 模擬器�
 | 🛠️ **21 個智慧代理工具** | 裝置清單、啟動/關閉、截圖、互動、建置執行、統一記錄檔、基於 AXe 的 UI 樹與按元素點擊、清單/資訊流列級操作、Vision OCR 找字/點字、SwiftUI 預覽熱重載、處理程序清單、呼叫堆疊、洩漏分析、App 資訊。 |
 | 👆 **可互動面板** | 在即時畫面上點按、拖曳；Home / 旋轉 / 截圖 / 重新整理圖示工具列（懸停提示）；尺寸模式（适应 · 50–125% · S/M/L）；外框樣式（无框 / 边框 / 真机框）；拖曳調寬上限 960px、雙擊重設；橫向畫面自動加寬。 |
 | 🧾 **清單與資訊流列** | `ios_sim_ui_rows` 把深層無障礙快照轉成帶索引、標籤與通用解析計數器的列；`ios_sim_tap_row` 在列內按相對座標點按，並用計數器符合預期的 ±1 變化驗證操作是否生效——這是清單類 App 唯一可靠的確認方式。 |
-| 🔐 **僅回送的傳輸** | serve-sim 只綁定 127.0.0.1 的專屬連接埠段；每條路由都要求回送對端、回送 `Host` 與 Fetch-Metadata/Origin 驗證；HMAC 能力權杖 10 分鐘內過期。真機上的 WebDriverAgent 控制/MJPEG 通道同樣是受同一圍欄保護的回送 `iproxy` 轉送。 |
+| 🔐 **僅回送的傳輸** | serve-sim 只綁定 127.0.0.1 的專屬連接埠段；每條路由都要求回送對端、回送 `Host` 與 Fetch-Metadata/Origin 驗證；HMAC 能力權杖 10 分鐘內過期。。 |
 | ⚡ **SwiftUI 預覽熱重載** | `ios_sim_preview` 在套件之外產生一次性宿主 App，把你的預覽編譯成 dylib，編輯後無需重啟即可熱替換進正在執行的模擬器（約 2–5 秒）。 |
 | 🧭 **語意化 UI 自動化** | `ios_sim_ui_tree` 匯出無障礙元素樹（基於 AXe），`ios_sim_tap_element` 按標籤或識別碼點擊；當元素樹為空或退化時，`ios_sim_find_text` 直接對螢幕做 OCR，`ios_sim_tap_text` 點擊命中的文字——按身份或按文字點擊，而不是猜座標。 |
 
@@ -117,8 +117,7 @@ DSH iOS 模擬器讓智慧代理在對話裡擁有一台真正的 iOS 模擬器�
 - 瀏覽器永遠不會接觸 serve-sim 的連接埠。所有流量都經由 DSH webserver 源站上的 `/_dsh/dsh-ios/*` 路由：`/stream/<token>`（MJPEG 代理）、`/screenshot/<token>`（快取 PNG）、`/ws?token=…`（HID 控制轉送），以及 `/grant`、`/capture`、`/status` 端點。
 - 權杖是 HMAC-SHA256 能力憑證（`base64url(payload).base64url(mac)`），10 分鐘內過期，用每個 DSH 主目錄私有的金鑰簽章（`<DSH_HOME>/cache/dsh-ios/stream-access.key`，0600，原子建立）。
 - 每條路由在檢查任何能力之前先套用回送/可信傳輸圍欄：回送對端位址、回送 `Host`（拒絕 DNS 重綁定）、Fetch-Metadata/Origin 驗證。截圖路由只提供外掛程式快取目錄內的檔案（拒絕符號連結，並做 `realpath` 包含性驗證）。
-- serve-sim 以前景子處理程序方式執行，僅綁定回送位址的專屬連接埠段（3181–3244），絕不會動使用者自己在 3100 連接埠上的 serve-sim；從不使用 `--host`。
-- **真機傳輸**——WebDriverAgent 的控制（REST，裝置連接埠 8100）與畫面（MJPEG，連接埠 9100）通道是架在 USB 鏈路上的回送 `iproxy` 轉送；它們同樣處於簽章路由圍欄之後，瀏覽器仍舊只與 DSH webserver 源站通訊。
+- serve-sim 以前景子處理程序方式執行，僅綁定回送位址的專屬連接埠段（3181–3244），絕不會動使用者自己在 3100 連接埠上的 serve-sim；從不使用 `--host`。。
 - **孤兒處理程序收養/回收**——若上一個 DSH 主機被異常殺死、其 serve-sim 子處理程序存活了下來：同一裝置會被直接收養（孤兒處理程序的握手資訊視為權威）；若殘留處理程序占用槽位卻服務著別的裝置，則透過 `serve-sim -k` 回收並重試一次。
 - **保活與閒置停止**——推流崩潰後約 5 秒會在背景自動重啟；當沒有消費者時，閒置 5 分鐘自動停止。主動停止絕不會被保活邏輯對抗。（真機 runner 有意豁免閒置回收：重啟它意味著一次數分鐘的 `xcodebuild` 重新建置。）
 
@@ -131,13 +130,12 @@ DSH iOS 模擬器讓智慧代理在對話裡擁有一台真正的 iOS 模擬器�
 - **serve-sim** 作為本外掛程式的 npm 依賴隨套件安裝，正式安裝時會從本地解析；開發目錄則回退到 `npx -y serve-sim`（首次使用需要連網）。
 - **AXe**（可選——只有基於 AXe 的工具需要：`ios_sim_ui_tree` / `ios_sim_tap_element`，以及模擬器上的 `ios_sim_ui_rows` / `ios_sim_tap_row`）：`brew install cameroncooke/axe/axe`，或讓外掛程式自動下載固定版本（v1.8.0，驗證 SHA-256）到 `~/Library/Caches/dsh-ios/bin`。`DSH_IOS_AXE_BIN` 可覆蓋解析結果；`DSH_IOS_AXE_OFFLINE=1` 可停用下載。
 - **Vision OCR**（可選——只有 `ios_sim_find_text` / `ios_sim_tap_text` 需要）：外掛程式首次使用時用 `swiftc` 把內建的 `assets/ocr.swift` 編譯到 `~/Library/Caches/dsh-ios/bin/ocr`（識別 zh-Hans + en-US）。
-- **lldb attach 需要 macOS 開發者模式**：執行一次 `sudo DevToolsSecurity -enable`。在此之前 `ios_sim_backtrace` 會改用 Xcode 的 `sample` 引擎（不掛起處理程序），`ios_sim_leaks` 會帶著開啟提示降級執行。
-- **真機 iPhone**——USB 連接的 iPhone，要求：螢幕解鎖（鎖定畫面時 WebDriverAgent 無法啟動；建議把自動鎖定設為「永不」）、支援資料傳輸的 USB 線（僅 Wi-Fi 配對無法承載連接埠轉送）、裝置開啟開發者模式、`~/Library/Caches/dsh-ios/wda/src` 處有一份 WebDriverAgent 原始碼（外掛程式從中建置 `WebDriverAgentRunner` scheme——它不會自行下載或 clone 任何東西），以及 libimobiledevice 的 `iproxy`（`brew install libimobiledevice`）用於 USB 通道。首次 WDA 建置會安裝簽章的 WebDriverAgentRunner：按提示在裝置上信任其憑證；免費團隊簽章描述檔 7 天過期後需重新執行 `ios_real_start_wda`。
+- **lldb attach 需要 macOS 開發者模式**：執行一次 `sudo DevToolsSecurity -enable`。在此之前 `ios_sim_backtrace` 會改用 Xcode 的 `sample` 引擎（不掛起處理程序），`ios_sim_leaks` 會帶著開啟提示降級執行。。首次 WDA 建置會安裝簽章的 WebDriverAgentRunner：按提示在裝置上信任其憑證；免費團隊簽章描述檔 7 天過期後需重新執行 `ios_real_start_wda`。
 
 ## 安裝到 DSH
 
 ```sh
-dsh plugin --profile <name> add @zseven-w/dsh-ios
+dsh plugin --profile web add @zseven-w/dsh-ios@latest
 dsh web
 ```
 
@@ -145,7 +143,7 @@ dsh web
 >
 > ```sh
 > npm pack                                   # 在本倉庫內執行 → dsh-ios-0.1.0-rc.1.tgz
-> dsh plugin --profile <name> add /path/to/dsh-ios-0.1.0-rc.1.tgz
+> dsh plugin --profile web add /path/to/dsh-ios-0.1.0-rc.1.tgz
 > dsh web
 > ```
 
@@ -166,8 +164,7 @@ dsh web
 - **`ios_sim_ui_tree` / `ios_sim_tap_element` 需要 AXe**——用 `brew install cameroncooke/axe/axe` 安裝，或讓外掛程式在首次使用時自動下載固定版本（需要能存取 github.com）。錯誤訊息裡始終附帶完整的安裝提示；`DSH_IOS_AXE_BIN=/path/to/axe` 可覆蓋解析結果。列工具（`ios_sim_ui_rows` / `ios_sim_tap_row`）在模擬器上同樣需要 AXe。
 - **`ios_sim_find_text` / `ios_sim_tap_text` 報告缺少 OCR 助手**——首次使用會用 `swiftc`（需要 Xcode）把內建的 `assets/ocr.swift` 編譯到 `~/Library/Caches/dsh-ios/bin/ocr`；錯誤訊息裡帶具體路徑與提示。
 - **`ios_sim_ui_rows` 找不到列**——結果會說明原因：深度太淺（調大 `max_depth`；真機上每次更深快照約 15–25 秒）、不是清單頁，或深度讀取後確實沒有無障礙資訊。淺讀絕不會被誤報為「缺少無障礙支援」。
-- **iOS 26.2 模擬器上的 `ios_sim_leaks` 怪癖**——在 iOS 26.2 執行時期上，即使開發者模式已開啟，Xcode 的 `leaks` 也可能無法分析模擬器處理程序，報出 `Failed to get DYLD info` 或 minimal-corpse 之類的致命診斷。工具會平滑降級：你能看到原始診斷，目標處理程序必定被驗證恢復，不會卡住。外掛程式側沒有修復辦法——遇到時試試 `mode: "memgraph"` 或換一個執行時期。
-- **真機呼叫失敗並回傳編碼狀態**——面板狀態直接給出原因，不必猜測：`device-locked`（解鎖手機；解鎖後自動恢復）、`cert-untrusted`（在裝置上信任 WebDriverAgent 憑證）、`profile-expired`（免費團隊簽章有效期 7 天——重跑 `ios_real_start_wda` 重新建置）、`tunnel-failed`（檢查 USB 鏈路/iproxyd）、`device-unplugged`（換一根支援資料的 USB 線——僅 Wi-Fi 配對無法承載連接埠轉送）。
+- **iOS 26.2 模擬器上的 `ios_sim_leaks` 怪癖**——在 iOS 26.2 執行時期上，即使開發者模式已開啟，Xcode 的 `leaks` 也可能無法分析模擬器處理程序，報出 `Failed to get DYLD info` 或 minimal-corpse 之類的致命診斷。工具會平滑降級：你能看到原始診斷，目標處理程序必定被驗證恢復，不會卡住。外掛程式側沒有修復辦法——遇到時試試 `mode: "memgraph"` 或換一個執行時期。。
 - **推流自己停了**——這是閒置策略，不是崩潰：沒有消費者（面板關閉、沒有掛載的卡片、沒有活躍路由）時，推流會在 5 分鐘後停止，並在下一次工具呼叫或開啟面板時重啟。崩潰的推流則會在約 5 秒內於背景自動重啟。
 
 ## 開發

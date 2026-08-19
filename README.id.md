@@ -39,7 +39,7 @@ DSH Simulator iOS memberi agen simulator iOS sungguhan di dalam percakapan — d
 | 🛠️ **21 alat agen** | Perangkat, nyalakan/matikan, tangkapan layar, interaksi, build dan jalankan, log terpadu, pohon UI berbasis AXe dan ketuk per elemen, aksi baris daftar/umpan, temukan/ketuk teks dengan Vision OCR, muat ulang panas pratinjau SwiftUI, proses, backtrace, kebocoran, info aplikasi. |
 | 👆 **Panel interaktif** | Ketuk dan seret pada video langsung; bilah ikon Home / putar / tangkapan layar / segarkan dengan tooltip saat kursor di atas; mode ukuran (适应 · 50–125% · S/M/L); gaya bingkai (无框 / 边框 / 真机框); seret-ubah ukuran hingga 960 px dengan klik ganda untuk reset; perlebar otomatis saat lanskap. |
 | 🧾 **Baris daftar dan umpan** | `ios_sim_ui_rows` mengubah snapshot aksesibilitas dalam menjadi baris berindeks dengan label dan penghitung yang diurai secara generik; `ios_sim_tap_row` mengetuk di dalam baris pada koordinat relatif dan memverifikasi aksi melalui perubahan ±1 penghitung sesuai harapan — satu-satunya konfirmasi andal yang ditawarkan aplikasi daftar. |
-| 🔐 **Transport khusus loopback** | serve-sim hanya mengikat 127.0.0.1 pada rentang port khusus; setiap rute mewajibkan peer loopback, `Host` loopback, dan pemeriksaan Fetch-Metadata/Origin; kapabilitas HMAC kedaluwarsa dalam 10 menit. Terowongan kontrol/MJPEG WebDriverAgent pada perangkat asli adalah penerusan `iproxy` loopback di balik pagar yang sama. |
+| 🔐 **Transport khusus loopback** | serve-sim hanya mengikat 127.0.0.1 pada rentang port khusus; setiap rute mewajibkan peer loopback, `Host` loopback, dan pemeriksaan Fetch-Metadata/Origin; kapabilitas HMAC kedaluwarsa dalam 10 menit.. |
 | ⚡ **Muat ulang panas pratinjau SwiftUI** | `ios_sim_preview` membuat aplikasi host sekali pakai di luar paket Anda, membangun pratinjau Anda sebagai dylib, dan menukar-panas editan ke simulator yang sedang berjalan tanpa meluncurkan ulang (~2–5 detik). |
 | 🧭 **Otomasi UI semantik** | `ios_sim_ui_tree` membuang pohon aksesibilitas (berbasis AXe) dan `ios_sim_tap_element` mengetuk berdasarkan label atau pengenal; saat pohon kosong atau menurun, `ios_sim_find_text` meng-OCR layar dan `ios_sim_tap_text` mengetuk teks yang cocok — ketukan berbasis identitas dan teks, bukan koordinat tebakan. |
 
@@ -117,8 +117,7 @@ Aplikasi daftar/umpan menggabungkan setiap item ke dalam satu sel aksesibilitas 
 - Peramban tidak pernah berbicara dengan port serve-sim. Setiap byte melintasi origin server web DSH melalui rute `/_dsh/dsh-ios/*` milik plugin: `/stream/<token>` (proxy MJPEG), `/screenshot/<token>` (PNG ter-cache), `/ws?token=…` (relai kontrol HID), plus endpoint `/grant`, `/capture`, dan `/status`.
 - Token adalah kapabilitas HMAC-SHA256 (`base64url(payload).base64url(mac)`) yang kedaluwarsa dalam 10 menit, ditandatangani dengan kunci per-rumah DSH (`<DSH_HOME>/cache/dsh-ios/stream-access.key`, 0600, dibuat secara atomik).
 - Setiap rute menerapkan pagar transport loopback/tepercaya sebelum kapabilitas apa pun diperiksa: alamat peer loopback, `Host` loopback (DNS-rebinding ditolak), dan pemeriksaan Fetch-Metadata/Origin. Rute tangkapan layar hanya menyajikan file di dalam direktori cache plugin (tautan simbolis ditolak, pemeriksaan `realpath`).
-- serve-sim berjalan sebagai proses anak latar depan hanya di loopback, pada rentang port khusus (3181–3244), sehingga serve-sim milik pengguna sendiri di port 3100 tidak pernah tersentuh; `--host` tidak pernah digunakan.
-- **Transport perangkat asli** — terowongan kontrol WebDriverAgent (REST, port perangkat 8100) dan layar (MJPEG, port 9100) adalah penerusan `iproxy` loopback di atas tautan USB; keduanya berada di balik pagar rute bertanda tangan yang sama, dan peramban tetap hanya berbicara dengan origin server web DSH.
+- serve-sim berjalan sebagai proses anak latar depan hanya di loopback, pada rentang port khusus (3181–3244), sehingga serve-sim milik pengguna sendiri di port 3100 tidak pernah tersentuh; `--host` tidak pernah digunakan..
 - **Adopsi/reklaim yatim** — jika host DSH sebelumnya dimatikan secara kasar dan helper serve-sim-nya selamat, perangkat yang sama diadopsi (handshake si yatim bersifat berwenang); helper basi yang menduduki slot perangkat lain direklaim lewat `serve-sim -k` dan diluncurkan ulang sekali.
 - **Keep-alive + berhenti saat idle** — aliran yang crash dimulai ulang di latar belakang (~5 dtk jeda); tanpa konsumen, aliran berhenti otomatis setelah 5 menit. Penghentian yang disengaja tidak pernah dilawan. (Runner perangkat asli sengaja dikecualikan dari pemungutan idle: memulai ulangnya menghabiskan build ulang `xcodebuild` berdurasi menit.)
 
@@ -131,13 +130,12 @@ Aplikasi daftar/umpan menggabungkan setiap item ke dalam satu sel aksesibilitas 
 - **serve-sim** dikirim sebagai dependensi npm plugin ini, sehingga terselesaikan secara lokal pada pemasangan sungguhan; cadangan `npx -y serve-sim` menutupi pohon pengembangan (pemakaian pertama butuh jaringan).
 - **AXe** (opsional — hanya alat berbasis AXe yang membutuhkannya: `ios_sim_ui_tree` / `ios_sim_tap_element`, plus `ios_sim_ui_rows` / `ios_sim_tap_row` pada simulator): `brew install cameroncooke/axe/axe`, atau biarkan plugin mengunduh otomatis rilis yang disematkan (v1.8.0, terverifikasi SHA-256) ke `~/Library/Caches/dsh-ios/bin`. `DSH_IOS_AXE_BIN` menimpa resolusi; `DSH_IOS_AXE_OFFLINE=1` menonaktifkan unduhan.
 - **Vision OCR** (opsional — hanya `ios_sim_find_text` / `ios_sim_tap_text` yang membutuhkannya): plugin mengompilasi `assets/ocr.swift` bawaannya dengan `swiftc` pada pemakaian pertama ke `~/Library/Caches/dsh-ios/bin/ocr` (pengenalan zh-Hans + en-US).
-- **Pemasangan lldb butuh Mode Pengembang macOS**: jalankan `sudo DevToolsSecurity -enable` sekali. Sampai saat itu `ios_sim_backtrace` memakai mesin `sample` milik Xcode (tanpa menangguhkan) dan `ios_sim_leaks` menurun dengan petunjuk pengaktifan.
-- **iPhone asli** — iPhone terhubung USB dengan layar terbuka kunci (WebDriverAgent tidak dapat mulai pada layar terkunci; pertimbangkan Kunci Otomatis: Tidak Pernah), kabel USB ber-data (pemasangan hanya Wi-Fi tidak dapat membawa penerusan port), Mode Pengembang aktif pada perangkat, checkout WebDriverAgent di `~/Library/Caches/dsh-ios/wda/src` (plugin membangun scheme `WebDriverAgentRunner` dari sana — ia tidak pernah mengunduh atau mengkloning apa pun), dan `iproxy` dari libimobiledevice (`brew install libimobiledevice`) untuk terowongan USB. Build WDA pertama memasang WebDriverAgentRunner yang ditandatangani: percayai sertifikatnya di perangkat saat diminta, dan jalankan ulang `ios_real_start_wda` saat profil penandatanganan tim gratis kedaluwarsa (masa berlaku 7 hari).
+- **Pemasangan lldb butuh Mode Pengembang macOS**: jalankan `sudo DevToolsSecurity -enable` sekali. Sampai saat itu `ios_sim_backtrace` memakai mesin `sample` milik Xcode (tanpa menangguhkan) dan `ios_sim_leaks` menurun dengan petunjuk pengaktifan.. Build WDA pertama memasang WebDriverAgentRunner yang ditandatangani: percayai sertifikatnya di perangkat saat diminta, dan jalankan ulang `ios_real_start_wda` saat profil penandatanganan tim gratis kedaluwarsa (masa berlaku 7 hari).
 
 ## Pasang di DSH
 
 ```sh
-dsh plugin --profile <name> add @zseven-w/dsh-ios
+dsh plugin --profile web add @zseven-w/dsh-ios@latest
 dsh web
 ```
 
@@ -145,7 +143,7 @@ dsh web
 >
 > ```sh
 > npm pack                                   # di repositori ini → dsh-ios-0.1.0-rc.1.tgz
-> dsh plugin --profile <name> add /path/to/dsh-ios-0.1.0-rc.1.tgz
+> dsh plugin --profile web add /path/to/dsh-ios-0.1.0-rc.1.tgz
 > dsh web
 > ```
 
@@ -166,8 +164,7 @@ Percakapan pertama yang umum:
 - **`ios_sim_ui_tree` / `ios_sim_tap_element` butuh AXe** — pasang dengan `brew install cameroncooke/axe/axe`, atau biarkan plugin mengunduh rilis yang disematkan pada pemakaian pertama (butuh jaringan ke github.com). Pesan error selalu memuat petunjuk pemasangan lengkap; `DSH_IOS_AXE_BIN=/path/to/axe` menimpa resolusi. Alat baris (`ios_sim_ui_rows` / `ios_sim_tap_row`) juga butuh AXe pada simulator.
 - **`ios_sim_find_text` / `ios_sim_tap_text` melaporkan helper OCR hilang** — pemakaian pertama mengompilasi `assets/ocr.swift` bawaan dengan `swiftc` (butuh Xcode) ke `~/Library/Caches/dsh-ios/bin/ocr`; error memuat path dan petunjuk persisnya.
 - **`ios_sim_ui_rows` tidak menemukan baris** — hasilnya menjelaskan alasannya: kedalaman terlalu dangkal (naikkan `max_depth`; di ponsel setiap snapshot lebih dalam berbiaya ~15–25 dtk), bukan layar daftar, atau benar-benar tidak ada informasi aksesibilitas setelah pembacaan dalam. Pembacaan dangkal tidak pernah salah dilaporkan sebagai aksesibilitas yang hilang.
-- **`ios_sim_leaks` pada simulator iOS 26.2** — pada runtime iOS 26.2, `leaks` milik Xcode bisa gagal memeriksa proses simulator dengan diagnostik fatal seperti `Failed to get DYLD info` atau error minimal-corpse, bahkan dengan Mode Pengembang aktif. Alat menurun dengan rapi: Anda mendapat diagnostik mentah, target selalu diverifikasi dilanjutkan, dan tidak ada yang macet. Tidak ada perbaikan di sisi plugin — saat terjadi, coba `mode: "memgraph"` atau runtime lain.
-- **Panggilan perangkat asli gagal dengan status berkode** — status panel menyebut penyebabnya alih-alih menebak: `device-locked` (buka kunci ponsel; ia pulih sendiri), `cert-untrusted` (percayai sertifikat WebDriverAgent di perangkat), `profile-expired` (penandatanganan tim gratis berlaku 7 hari — jalankan ulang `ios_real_start_wda` untuk membangun ulang), `tunnel-failed` (periksa tautan USB/iproxyd), `device-unplugged` (gunakan kabel USB ber-data — pemasangan hanya Wi-Fi tidak dapat membawa penerusan port).
+- **`ios_sim_leaks` pada simulator iOS 26.2** — pada runtime iOS 26.2, `leaks` milik Xcode bisa gagal memeriksa proses simulator dengan diagnostik fatal seperti `Failed to get DYLD info` atau error minimal-corpse, bahkan dengan Mode Pengembang aktif. Alat menurun dengan rapi: Anda mendapat diagnostik mentah, target selalu diverifikasi dilanjutkan, dan tidak ada yang macet. Tidak ada perbaikan di sisi plugin — saat terjadi, coba `mode: "memgraph"` atau runtime lain..
 - **Aliran berhenti sendiri** — itu kebijakan idle, bukan crash: tanpa konsumen (panel tertutup, tidak ada kartu terpasang, tidak ada rute aktif) aliran berhenti setelah 5 menit dan dimulai ulang pada panggilan alat berikutnya atau saat panel dibuka. Aliran yang crash dimulai ulang di latar belakang dalam ~5 detik.
 
 ## Pengembangan

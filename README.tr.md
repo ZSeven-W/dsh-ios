@@ -39,7 +39,7 @@ DSH iOS Simülatörü ajana sohbetin içinde gerçek bir iOS simülatörü verir
 | 🛠️ **21 ajan aracı** | Cihazlar, başlatma/kapatma, ekran görüntüsü, etkileşim, derleme ve çalıştırma, birleşik günlükler, AXe destekli UI ağacı ve öğeye dokunma, liste/akış satırı eylemleri, Vision OCR bul/dokun, SwiftUI önizleme sıcak yeniden yükleme, süreçler, backtrace, bellek sızıntıları, uygulama bilgisi. |
 | 👆 **Etkileşimli panel** | Canlı videoda dokunun ve sürükleyin; üzerine gelince araç ipuçlu Home / döndür / ekran görüntüsü / yenile simge çubuğu; boyut modları (适应 · 50–125% · S/M/L); çerçeve stilleri (无框 / 边框 / 真机框); çift tıklamayla sıfırlamalı, 960 px'e kadar sürükleyerek yeniden boyutlandırma; yatayda otomatik genişleme. |
 | 🧾 **Liste ve akış satırları** | `ios_sim_ui_rows` derin erişilebilirlik anlık görüntülerini etiketli ve genel olarak ayrıştırılmış sayaçlı, dizinli satırlara dönüştürür; `ios_sim_tap_row` satırın içinde göreli koordinatlarda dokunur ve eylemi sayacın beklenen ±1 değişimiyle doğrular — bir liste uygulamasının sunduğu tek güvenilir onay budur. |
-| 🔐 **Yalnızca loopback taşıma** | serve-sim ayrılmış bir bağlantı noktası aralığında 127.0.0.1'e bağlanır; her rota bir loopback eşi, loopback `Host` ve Fetch-Metadata/Origin denetimleri ister; HMAC yeteneklerinin süresi 10 dakika içinde dolar. Gerçek cihazdaki WebDriverAgent kontrol/MJPEG tünelleri aynı çitin ardındaki loopback `iproxy` yönlendirmeleridir. |
+| 🔐 **Yalnızca loopback taşıma** | serve-sim ayrılmış bir bağlantı noktası aralığında 127.0.0.1'e bağlanır; her rota bir loopback eşi, loopback `Host` ve Fetch-Metadata/Origin denetimleri ister; HMAC yeteneklerinin süresi 10 dakika içinde dolar.. |
 | ⚡ **SwiftUI önizleme sıcak yeniden yükleme** | `ios_sim_preview` paketinizin dışında tek kullanımlık bir ana uygulama üretir, önizlemelerinizi dylib olarak derler ve düzenlemeleri yeniden başlatmadan çalışan simülatöre sıcak değişimle uygular (~2–5 sn). |
 | 🧭 **Anlamsal UI otomasyonu** | `ios_sim_ui_tree` erişilebilirlik ağacını (AXe destekli) döker ve `ios_sim_tap_element` etikete veya tanımlayıcıya göre dokunur; ağaç boş veya bozulmuşken `ios_sim_find_text` ekranı OCR'lar ve `ios_sim_tap_text` eşleşen metne dokunur — tahmin edilen koordinatlar yerine kimlik ve metin tabanlı dokunuşlar. |
 
@@ -117,8 +117,7 @@ Liste/akış uygulamaları her öğeyi, etiketi tüm özeti ve tüm sayaçları 
 - Tarayıcı asla serve-sim'in bağlantı noktasıyla konuşmaz. Her bayt, DSH web sunucusu kaynağından eklentiye ait `/_dsh/dsh-ios/*` rotaları üzerinden geçer: `/stream/<token>` (MJPEG vekili), `/screenshot/<token>` (önbellekli PNG), `/ws?token=…` (HID kontrol aktarıcısı), ayrıca `/grant`, `/capture` ve `/status` uç noktaları.
 - Belirteçler, süresi 10 dakika içinde dolan ve her DSH evine özel bir anahtarla imzalanan HMAC-SHA256 yetenekleridir (`base64url(payload).base64url(mac)`; anahtar: `<DSH_HOME>/cache/dsh-ios/stream-access.key`, 0600, atomik oluşturulur).
 - Her rota, herhangi bir yetenek denetlenmeden önce bir loopback/güvenilir taşıma çiti uygular: loopback eş adresi, loopback `Host` (DNS yeniden bağlama reddedilir) ve Fetch-Metadata/Origin denetimleri. Ekran görüntüsü rotası yalnızca eklenti önbellek dizinindeki dosyaları sunar (sembolik bağlantılar reddedilir, `realpath` kapsamı).
-- serve-sim yalnızca loopback üzerinde, ayrılmış bir bağlantı noktası aralığında (3181–3244) ön plan alt süreci olarak çalışır, böylece kullanıcının 3100 numaralı bağlantı noktasındaki kendi serve-sim'ine asla dokunulmaz; `--host` asla kullanılmaz.
-- **Gerçek cihaz taşıması** — WebDriverAgent kontrol (REST, cihaz bağlantı noktası 8100) ve ekran (MJPEG, bağlantı noktası 9100) tünelleri USB bağlantısı üzerindeki loopback `iproxy` yönlendirmeleridir; aynı imzalı rota çitinin ardında dururlar ve tarayıcı yine yalnızca DSH web sunucusu kaynağıyla konuşur.
+- serve-sim yalnızca loopback üzerinde, ayrılmış bir bağlantı noktası aralığında (3181–3244) ön plan alt süreci olarak çalışır, böylece kullanıcının 3100 numaralı bağlantı noktasındaki kendi serve-sim'ine asla dokunulmaz; `--host` asla kullanılmaz..
 - **Yetim evlat edinme/geri alma** — önceki bir DSH ana makinesi zarif olmayan şekilde öldürüldüyse ve serve-sim yardımcısı hayatta kaldıysa, aynı cihaz evlat edinilir (yetimin el sıkışması yetkilidir); farklı bir cihazın yuvasına çöreklenmiş eski bir yardımcı `serve-sim -k` ile geri alınır ve bir kez yeniden başlatılır.
 - **Keep-alive + boşta durdurma** — çöken bir akış arka planda yeniden başlar (~5 sn gecikme); sıfır tüketiciyle akış 5 dakika sonra otomatik durur. Kasıtlı durdurmalar asla engellenmez. (Gerçek cihaz çalıştırıcısı bilinçli olarak boşta toplamadan muaftır: onu yeniden başlatmak dakikalar süren bir `xcodebuild` yeniden derlemesine mal olur.)
 
@@ -131,13 +130,12 @@ Liste/akış uygulamaları her öğeyi, etiketi tüm özeti ve tüm sayaçları 
 - **serve-sim** bu eklentinin npm bağımlılığı olarak gelir, bu yüzden gerçek kurulumlarda yerel olarak çözümlenir; `npx -y serve-sim` yedeği geliştirme ağaçlarını kapsar (ilk kullanım ağ gerektirir).
 - **AXe** (isteğe bağlı — yalnızca AXe destekli araçlar gerektirir: `ios_sim_ui_tree` / `ios_sim_tap_element`, ayrıca simülatörde `ios_sim_ui_rows` / `ios_sim_tap_row`): `brew install cameroncooke/axe/axe`, veya eklentinin sabitlenmiş sürümü (v1.8.0, SHA-256 doğrulamalı) `~/Library/Caches/dsh-ios/bin` içine otomatik indirmesine izin verin. `DSH_IOS_AXE_BIN` çözümlemeyi geçersiz kılar; `DSH_IOS_AXE_OFFLINE=1` indirmeyi devre dışı bırakır.
 - **Vision OCR** (isteğe bağlı — yalnızca `ios_sim_find_text` / `ios_sim_tap_text` gerektirir): eklenti ilk kullanımda paketli `assets/ocr.swift` dosyasını `swiftc` ile `~/Library/Caches/dsh-ios/bin/ocr` içine derler (zh-Hans + en-US tanıma).
-- **lldb bağlanması macOS Geliştirici Modu gerektirir**: bir kez `sudo DevToolsSecurity -enable` çalıştırın. O zamana kadar `ios_sim_backtrace` Xcode'un `sample` motorunu (askıya almayan) kullanır ve `ios_sim_leaks` etkinleştirme ipucuyla düşer.
-- **Gerçek iPhone** — kilidi açık ekranlı, USB ile bağlı bir iPhone (kilit ekranında WebDriverAgent başlayamaz; Otomatik Kilit: Asla'yı düşünün), veri destekli bir USB kablosu (yalnızca Wi-Fi eşleştirmesi bağlantı noktası yönlendirmesini taşıyamaz), cihazda açık Geliştirici Modu, `~/Library/Caches/dsh-ios/wda/src` konumunda bir WebDriverAgent kopyası (eklenti `WebDriverAgentRunner` şemasını oradan derler — hiçbir şey indirmez veya klonlamaz) ve USB tünelleri için libimobiledevice'in `iproxy` aracı (`brew install libimobiledevice`). İlk WDA derlemesi imzalı bir WebDriverAgentRunner kurar: istendiğinde cihazda sertifikasına güvenin ve ücretsiz ekip imzalama profili dolduğunda (7 günlük ömür) `ios_real_start_wda`'yı yeniden çalıştırın.
+- **lldb bağlanması macOS Geliştirici Modu gerektirir**: bir kez `sudo DevToolsSecurity -enable` çalıştırın. O zamana kadar `ios_sim_backtrace` Xcode'un `sample` motorunu (askıya almayan) kullanır ve `ios_sim_leaks` etkinleştirme ipucuyla düşer.. İlk WDA derlemesi imzalı bir WebDriverAgentRunner kurar: istendiğinde cihazda sertifikasına güvenin ve ücretsiz ekip imzalama profili dolduğunda (7 günlük ömür) `ios_real_start_wda`'yı yeniden çalıştırın.
 
 ## DSH'ye Kurulum
 
 ```sh
-dsh plugin --profile <name> add @zseven-w/dsh-ios
+dsh plugin --profile web add @zseven-w/dsh-ios@latest
 dsh web
 ```
 
@@ -145,7 +143,7 @@ dsh web
 >
 > ```sh
 > npm pack                                   # bu depoda → dsh-ios-0.1.0-rc.1.tgz
-> dsh plugin --profile <name> add /path/to/dsh-ios-0.1.0-rc.1.tgz
+> dsh plugin --profile web add /path/to/dsh-ios-0.1.0-rc.1.tgz
 > dsh web
 > ```
 
@@ -166,8 +164,7 @@ Tipik bir ilk sohbet:
 - **`ios_sim_ui_tree` / `ios_sim_tap_element` AXe gerektirir** — `brew install cameroncooke/axe/axe` ile kurun veya eklentinin ilk kullanımda sabitlenmiş sürümü indirmesine izin verin (github.com'a ağ gerekir). Hata mesajı her zaman tam kurulum ipucunu içerir; `DSH_IOS_AXE_BIN=/path/to/axe` çözümlemeyi geçersiz kılar. Satır araçları (`ios_sim_ui_rows` / `ios_sim_tap_row`) simülatörde de AXe gerektirir.
 - **`ios_sim_find_text` / `ios_sim_tap_text` OCR yardımcısının eksik olduğunu bildiriyor** — ilk kullanım `swiftc` (Xcode gerekir) ile paketli `assets/ocr.swift` dosyasını `~/Library/Caches/dsh-ios/bin/ocr` içine derler; hata tam yolu ve ipucunu içerir.
 - **`ios_sim_ui_rows` satır bulamıyor** — sonuç nedenini söyler: derinlik çok sığ (`max_depth`'i artırın; telefonda her derin anlık görüntü ~15–25 sn tutar), liste ekranı değil, veya derin okumadan sonra gerçekten erişilebilirlik bilgisi yok. Sığ bir okuma asla “erişilebilirlik eksik” diye yanlış bildirilmez.
-- **iOS 26.2 simülatörlerinde `ios_sim_leaks`** — iOS 26.2 çalışma zamanlarında, Geliştirici Modu açık olsa bile Xcode'un `leaks` aracı simülatör süreçlerini inceleyemeyip `Failed to get DYLD info` veya minimal-corpse gibi ölümcül tanılarla başarısız olabilir. Araç temiz şekilde düşer: ham tanıyı alırsınız, hedef her zaman sürdürüldüğü doğrulanır ve hiçbir şey asılı kalmaz. Eklenti tarafında çözüm yok — bu olduğunda `mode: "memgraph"` veya farklı bir çalışma zamanı deneyin.
-- **Gerçek cihaz çağrıları kodlu bir durumla başarısız oluyor** — panelin durumu tahmin etmek yerine nedeni söyler: `device-locked` (telefonun kilidini açın; kendiliğinden düzelir), `cert-untrusted` (cihazda WebDriverAgent sertifikasına güvenin), `profile-expired` (ücretsiz ekip imzası 7 gün sürer — yeniden derlemek için `ios_real_start_wda`'yı yeniden çalıştırın), `tunnel-failed` (USB bağlantısını/iproxyd'yi kontrol edin), `device-unplugged` (veri destekli bir USB kablosu kullanın — yalnızca Wi-Fi eşleştirmesi bağlantı noktası yönlendirmesini taşıyamaz).
+- **iOS 26.2 simülatörlerinde `ios_sim_leaks`** — iOS 26.2 çalışma zamanlarında, Geliştirici Modu açık olsa bile Xcode'un `leaks` aracı simülatör süreçlerini inceleyemeyip `Failed to get DYLD info` veya minimal-corpse gibi ölümcül tanılarla başarısız olabilir. Araç temiz şekilde düşer: ham tanıyı alırsınız, hedef her zaman sürdürüldüğü doğrulanır ve hiçbir şey asılı kalmaz. Eklenti tarafında çözüm yok — bu olduğunda `mode: "memgraph"` veya farklı bir çalışma zamanı deneyin..
 - **Akış kendiliğinden duruyor** — bu boşta politikasıdır, çökme değil: sıfır tüketiciyle (panel kapalı, bağlı kart yok, etkin rota yok) akış 5 dakika sonra durur ve bir sonraki araç çağrısında veya panel açılışında yeniden başlar. Çöken bir akış ~5 saniye içinde arka planda yeniden başlar.
 
 ## Geliştirme

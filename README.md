@@ -39,7 +39,7 @@ DSH iOS Simulator gives the agent a real iOS Simulator inside the conversation �
 | 🛠️ **21 agent tools** | Devices, boot/shutdown, screenshot, interact, build &amp; run, unified logs, AXe-backed UI tree + tap-by-element, list/feed row actions, Vision OCR find/tap, SwiftUI preview hot reload, processes, backtrace, leaks, app info. |
 | 👆 **Interactive panel** | Tap and drag on the live video; Home / rotate / screenshot / refresh icon toolbar with hover tooltips; size modes (适应 · 50–125% · S/M/L); frame styles (无框 / 边框 / 真机框); drag-resize up to 960 px with double-click reset; landscape auto-widen. |
 | 🧾 **List &amp; feed rows** | `ios_sim_ui_rows` turns deep accessibility snapshots into indexed rows with labels and generically parsed counters; `ios_sim_tap_row` taps inside a row at relative coordinates and verifies the action by the counter's expected ±1 change — the only reliable confirmation a list app offers. |
-| 🔐 **Loopback-only transport** | serve-sim binds 127.0.0.1 in a dedicated port range; every route requires a loopback peer, a loopback `Host`, and Fetch-Metadata/Origin checks; HMAC capabilities expire within 10 minutes. The WebDriverAgent control/MJPEG tunnels on a real device are loopback `iproxy` forwards under the same fence. |
+| 🔐 **Loopback-only transport** | serve-sim binds 127.0.0.1 in a dedicated port range; every route requires a loopback peer, a loopback `Host`, and Fetch-Metadata/Origin checks; HMAC capabilities expire within 10 minutes. The WebDriverAgent control/MJPEG tunnels on a real device are loopback usbmux forwards under the same fence. |
 | ⚡ **SwiftUI preview hot reload** | `ios_sim_preview` generates a disposable host app outside your package, builds your previews as a dylib, and hot-swaps edits into the running simulator without relaunching (~2–5 s). |
 | 🧭 **Semantic UI automation** | `ios_sim_ui_tree` dumps the accessibility tree (AXe-backed) and `ios_sim_tap_element` taps by label or identifier; `ios_sim_find_text` OCRs the screen when the tree is empty or degenerate, and `ios_sim_tap_text` taps the matched text — identity- and text-based taps instead of guessed coordinates. |
 
@@ -118,7 +118,7 @@ List/feed apps aggregate each item into one accessibility cell whose label carri
 - Tokens are HMAC-SHA256 capabilities (`base64url(payload).base64url(mac)`) expiring within 10 minutes, signed with a per-DSH-home key (`<DSH_HOME>/cache/dsh-ios/stream-access.key`, 0600, created atomically).
 - Every route applies a loopback/trusted transport fence before any capability is consulted: loopback peer address, loopback `Host` (DNS-rebinding rejected), and Fetch-Metadata/Origin checks. The screenshot route serves only files inside the plugin cache directory (symbolic links refused, `realpath` containment).
 - serve-sim runs as a foreground child on loopback only, in a dedicated port range (3181–3244), so a user's own serve-sim on port 3100 is never touched; `--host` is never used.
-- **Real-device transport** — the WebDriverAgent control (REST, device port 8100) and screen (MJPEG, port 9100) tunnels are loopback `iproxy` forwards over the USB link; they sit behind the same signed-route fence, and the browser still only ever talks to the DSH webserver origin.
+- **Real-device transport** — the WebDriverAgent control (REST, device port 8100) and screen (MJPEG, port 9100) tunnels are loopback usbmux forwards over the USB link; they sit behind the same signed-route fence, and the browser still only ever talks to the DSH webserver origin.
 - **Orphan adoption/reclaim** — if a previous DSH host was killed ungracefully and its serve-sim helper survived, the same device is adopted (the orphan's handshake is authoritative); a stale helper squatting on a slot for a different device is reclaimed via `serve-sim -k` and relaunched once.
 - **Keep-alive + idle stop** — a crashed stream restarts in the background (~5 s delay); with zero consumers the stream stops automatically after 5 minutes. Intentional stops are never fought. (The real-device runner is exempt from the idle reaping on purpose: restarting it costs a multi-minute `xcodebuild` rebuild.)
 
@@ -132,12 +132,12 @@ List/feed apps aggregate each item into one accessibility cell whose label carri
 - **AXe** (optional — only the AXe-backed tools need it: `ios_sim_ui_tree` / `ios_sim_tap_element`, plus `ios_sim_ui_rows` / `ios_sim_tap_row` on a simulator): `brew install cameroncooke/axe/axe`, or let the plugin auto-download the pinned release (v1.8.0, SHA-256 verified) into `~/Library/Caches/dsh-ios/bin`. `DSH_IOS_AXE_BIN` overrides resolution; `DSH_IOS_AXE_OFFLINE=1` disables the download.
 - **Vision OCR** (optional — only `ios_sim_find_text` / `ios_sim_tap_text` need it): the plugin compiles its bundled `assets/ocr.swift` with `swiftc` on first use into `~/Library/Caches/dsh-ios/bin/ocr` (zh-Hans + en-US recognition).
 - **lldb attach** needs macOS Developer Mode: run `sudo DevToolsSecurity -enable` once. Until then `ios_sim_backtrace` uses Xcode's `sample` engine (non-suspending) and `ios_sim_leaks` degrades with the enable hint.
-- **Real iPhone** — a USB-connected iPhone with the screen unlocked (WebDriverAgent cannot start on a locked screen; consider Auto-Lock: Never), a data-capable USB cable (a Wi-Fi-only pairing cannot carry the port forward), Developer Mode enabled on the device, a WebDriverAgent checkout at `~/Library/Caches/dsh-ios/wda/src` (the plugin builds its `WebDriverAgentRunner` scheme from there — it never downloads or clones anything), and `iproxy` from libimobiledevice (`brew install libimobiledevice`) for the USB tunnels. The first WDA build installs a signed WebDriverAgentRunner: trust its certificate on the device when prompted, and re-run `ios_real_start_wda` when the free-team signing profile expires (7-day lifetime).
+- **Real iPhone** — a USB-connected iPhone with the screen unlocked (WebDriverAgent cannot start on a locked screen; consider Auto-Lock: Never), a data-capable USB cable (a Wi-Fi-only pairing cannot carry the port forward), Developer Mode enabled on the device, a WebDriverAgent checkout at `~/Library/Caches/dsh-ios/wda/src` (the plugin builds its `WebDriverAgentRunner` scheme from there — it never downloads or clones anything),. The first WDA build installs a signed WebDriverAgentRunner: trust its certificate on the device when prompted, and re-run `ios_real_start_wda` when the free-team signing profile expires (7-day lifetime).
 
 ## Install into DSH
 
 ```sh
-dsh plugin --profile <name> add @zseven-w/dsh-ios
+dsh plugin --profile web add @zseven-w/dsh-ios@latest
 dsh web
 ```
 
@@ -145,7 +145,7 @@ dsh web
 >
 > ```sh
 > npm pack                                   # in this repository → dsh-ios-0.1.0-rc.1.tgz
-> dsh plugin --profile <name> add /path/to/dsh-ios-0.1.0-rc.1.tgz
+> dsh plugin --profile web add /path/to/dsh-ios-0.1.0-rc.1.tgz
 > dsh web
 > ```
 
@@ -167,7 +167,7 @@ A typical first conversation:
 - **`ios_sim_find_text` / `ios_sim_tap_text` report the OCR helper is missing** — first use compiles the bundled `assets/ocr.swift` with `swiftc` (needs Xcode) into `~/Library/Caches/dsh-ios/bin/ocr`; the error carries the exact path and hint.
 - **`ios_sim_ui_rows` finds no rows** — the result says why: depth too shallow (raise `max_depth`; on a phone each deeper snapshot costs ~15–25 s), not a list screen, or genuinely no accessibility information after a deep read. A shallow read is never misreported as missing accessibility.
 - **`ios_sim_leaks` on iOS 26.2 simulators** — on iOS 26.2 runtimes, Xcode's `leaks` can fail to inspect simulator processes with fatal diagnostics such as `Failed to get DYLD info` or minimal-corpse errors, even with Developer Mode enabled. The tool degrades cleanly: you get the raw diagnostic, the target is always verified resumed, and nothing hangs. There is no plugin-side fix — when it bites, try `mode: "memgraph"` or a different runtime.
-- **Real-device calls fail with a coded status** — the panel's status names the cause instead of guessing: `device-locked` (unlock the phone; it recovers by itself), `cert-untrusted` (trust the WebDriverAgent certificate on the device), `profile-expired` (free-team signing lasts 7 days — re-run `ios_real_start_wda` to rebuild), `tunnel-failed` (check the USB link/iproxyd), `device-unplugged` (use a data-capable USB cable — Wi-Fi-only pairing cannot carry the port forward).
+- **Real-device calls fail with a coded status** — the panel's status names the cause instead of guessing: `device-locked` (unlock the phone; it recovers by itself), `cert-untrusted` (trust the WebDriverAgent certificate on the device), `profile-expired` (free-team signing lasts 7 days — re-run `ios_real_start_wda` to rebuild), `tunnel-failed` (check the USB link/usbmuxd), `device-unplugged` (use a data-capable USB cable — Wi-Fi-only pairing cannot carry the port forward).
 - **The stream stops by itself** — that is the idle policy, not a crash: with zero consumers (panel closed, no cards mounted, no route active) the stream stops after 5 minutes and restarts on the next tool call or panel open. A crashed stream restarts in the background within ~5 seconds.
 
 ## Development

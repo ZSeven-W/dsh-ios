@@ -39,7 +39,7 @@ DSH Trình mô phỏng iOS trao cho agent một trình mô phỏng iOS thật ng
 | 🛠️ **21 công cụ agent** | Thiết bị, khởi động/tắt, ảnh chụp màn hình, tương tác, build và chạy, nhật ký hợp nhất, cây UI dựa trên AXe và chạm theo phần tử, thao tác hàng danh sách/bảng tin, tìm/chạm văn bản bằng Vision OCR, hot reload bản xem trước SwiftUI, tiến trình, backtrace, rò rỉ, thông tin ứng dụng. |
 | 👆 **Bảng tương tác** | Chạm và kéo trên video trực tiếp; thanh biểu tượng Home / xoay / chụp màn hình / làm mới với chú giải khi rê chuột; chế độ kích thước (适应 · 50–125% · S/M/L); kiểu khung (无框 / 边框 / 真机框); kéo đổi kích thước đến 960 px với nhấp đúp để đặt lại; tự mở rộng khi nằm ngang. |
 | 🧾 **Hàng danh sách và bảng tin** | `ios_sim_ui_rows` biến ảnh chụp trợ năng sâu thành các hàng có chỉ mục với nhãn và bộ đếm được phân tích tổng quát; `ios_sim_tap_row` chạm bên trong một hàng tại tọa độ tương đối và xác minh hành động bằng thay đổi ±1 như kỳ vọng của bộ đếm — xác nhận đáng tin cậy duy nhất mà ứng dụng dạng danh sách cung cấp. |
-| 🔐 **Vận chuyển chỉ qua loopback** | serve-sim chỉ gắn với 127.0.0.1 trong dải cổng riêng; mọi tuyến đều yêu cầu một đầu loopback, `Host` loopback và kiểm tra Fetch-Metadata/Origin; năng lực HMAC hết hạn trong vòng 10 phút. Các đường hầm điều khiển/MJPEG của WebDriverAgent trên thiết bị thật là các chuyển tiếp `iproxy` loopback phía sau cùng hàng rào đó. |
+| 🔐 **Vận chuyển chỉ qua loopback** | serve-sim chỉ gắn với 127.0.0.1 trong dải cổng riêng; mọi tuyến đều yêu cầu một đầu loopback, `Host` loopback và kiểm tra Fetch-Metadata/Origin; năng lực HMAC hết hạn trong vòng 10 phút.. |
 | ⚡ **Hot reload bản xem trước SwiftUI** | `ios_sim_preview` tạo một ứng dụng chủ dùng một lần bên ngoài gói của bạn, build các bản xem trước thành dylib và hoán đổi nóng các chỉnh sửa vào trình mô phỏng đang chạy mà không cần khởi chạy lại (~2–5 giây). |
 | 🧭 **Tự động hóa UI theo ngữ nghĩa** | `ios_sim_ui_tree` kết xuất cây trợ năng (dựa trên AXe) và `ios_sim_tap_element` chạm theo nhãn hoặc mã định danh; khi cây rỗng hoặc suy biến, `ios_sim_find_text` OCR màn hình và `ios_sim_tap_text` chạm vào văn bản khớp — chạm theo định danh và văn bản thay vì đoán tọa độ. |
 
@@ -117,8 +117,7 @@ Các ứng dụng danh sách/bảng tin gộp mỗi mục vào một ô trợ n�
 - Trình duyệt không bao giờ nói chuyện với cổng của serve-sim. Mọi byte đi qua nguồn gốc máy chủ web DSH bằng các tuyến `/_dsh/dsh-ios/*` thuộc plugin: `/stream/<token>` (proxy MJPEG), `/screenshot/<token>` (PNG đã đệm), `/ws?token=…` (rơ-le điều khiển HID), cùng các điểm cuối `/grant`, `/capture` và `/status`.
 - Token là các năng lực HMAC-SHA256 (`base64url(payload).base64url(mac)`) hết hạn trong vòng 10 phút, ký bằng khóa riêng cho từng thư mục chính DSH (`<DSH_HOME>/cache/dsh-ios/stream-access.key`, 0600, tạo nguyên tử).
 - Mọi tuyến đều áp hàng rào vận chuyển loopback/đáng tin trước khi xét bất kỳ năng lực nào: địa chỉ đầu loopback, `Host` loopback (từ chối DNS-rebinding) và kiểm tra Fetch-Metadata/Origin. Tuyến ảnh chụp chỉ phục vụ các tệp trong thư mục đệm của plugin (từ chối liên kết tượng trưng, kiểm tra phạm vi bằng `realpath`).
-- serve-sim chạy như tiến trình con nền trước chỉ trên loopback, trong dải cổng riêng (3181–3244), nên serve-sim riêng của người dùng trên cổng 3100 không bao giờ bị đụng đến; `--host` không bao giờ được dùng.
-- **Vận chuyển thiết bị thật** — các đường hầm điều khiển WebDriverAgent (REST, cổng thiết bị 8100) và màn hình (MJPEG, cổng 9100) là các chuyển tiếp `iproxy` loopback trên liên kết USB; chúng nằm sau cùng hàng rào tuyến có chữ ký, và trình duyệt vẫn chỉ nói chuyện với nguồn gốc máy chủ web DSH.
+- serve-sim chạy như tiến trình con nền trước chỉ trên loopback, trong dải cổng riêng (3181–3244), nên serve-sim riêng của người dùng trên cổng 3100 không bao giờ bị đụng đến; `--host` không bao giờ được dùng..
 - **Nhận nuôi/thu hồi mồ côi** — nếu máy chủ DSH trước bị giết không sạch sẽ và trợ thủ serve-sim của nó sống sót, cùng thiết bị đó được nhận nuôi (cái bắt tay của tiến trình mồ côi có thẩm quyền); một trợ thủ cũ chiếm khe của thiết bị khác bị thu hồi qua `serve-sim -k` và khởi chạy lại một lần.
 - **Keep-alive + dừng khi nhàn rỗi** — luồng gặp sự cố tự khởi động lại nền (~5 giây trễ); khi không có người tiêu thụ, luồng tự dừng sau 5 phút. Việc dừng có chủ đích không bao giờ bị chống lại. (Bộ chạy thiết bị thật cố ý được miễn thu hoạch khi nhàn rỗi: khởi động lại nó tốn một lần build `xcodebuild` kéo dài nhiều phút.)
 
@@ -131,13 +130,12 @@ Các ứng dụng danh sách/bảng tin gộp mỗi mục vào một ô trợ n�
 - **serve-sim** đi kèm như phụ thuộc npm của plugin này, nên được phân giải cục bộ ở các bản cài thật; phương án dự phòng `npx -y serve-sim` bao phủ cây phát triển (lần dùng đầu cần mạng).
 - **AXe** (tùy chọn — chỉ các công cụ dựa trên AXe cần: `ios_sim_ui_tree` / `ios_sim_tap_element`, cùng `ios_sim_ui_rows` / `ios_sim_tap_row` trên trình mô phỏng): `brew install cameroncooke/axe/axe`, hoặc để plugin tự tải bản phát hành được ghim (v1.8.0, xác minh SHA-256) vào `~/Library/Caches/dsh-ios/bin`. `DSH_IOS_AXE_BIN` ghi đè phân giải; `DSH_IOS_AXE_OFFLINE=1` tắt tải xuống.
 - **Vision OCR** (tùy chọn — chỉ `ios_sim_find_text` / `ios_sim_tap_text` cần): plugin biên dịch `assets/ocr.swift` đi kèm bằng `swiftc` ở lần dùng đầu vào `~/Library/Caches/dsh-ios/bin/ocr` (nhận dạng zh-Hans + en-US).
-- **Gắn lldb cần Chế độ nhà phát triển của macOS**: chạy `sudo DevToolsSecurity -enable` một lần. Trước đó `ios_sim_backtrace` dùng công cụ `sample` của Xcode (không treo) và `ios_sim_leaks` suy giảm kèm gợi ý bật.
-- **iPhone thật** — iPhone kết nối USB với màn hình đã mở khóa (WebDriverAgent không thể khởi động trên màn hình khóa; cân nhắc Tự động khóa: Không bao giờ), cáp USB truyền dữ liệu (ghép đôi chỉ qua Wi-Fi không thể chuyển tiếp cổng), bật Chế độ nhà phát triển trên thiết bị, bản checkout WebDriverAgent tại `~/Library/Caches/dsh-ios/wda/src` (plugin build scheme `WebDriverAgentRunner` từ đó — nó không bao giờ tải hoặc clone bất cứ thứ gì), và `iproxy` từ libimobiledevice (`brew install libimobiledevice`) cho các đường hầm USB. Bản build WDA đầu tiên cài một WebDriverAgentRunner đã ký: tin cậy chứng chỉ của nó trên thiết bị khi được nhắc, và chạy lại `ios_real_start_wda` khi hồ sơ ký nhóm miễn phí hết hạn (thời hạn 7 ngày).
+- **Gắn lldb cần Chế độ nhà phát triển của macOS**: chạy `sudo DevToolsSecurity -enable` một lần. Trước đó `ios_sim_backtrace` dùng công cụ `sample` của Xcode (không treo) và `ios_sim_leaks` suy giảm kèm gợi ý bật.. Bản build WDA đầu tiên cài một WebDriverAgentRunner đã ký: tin cậy chứng chỉ của nó trên thiết bị khi được nhắc, và chạy lại `ios_real_start_wda` khi hồ sơ ký nhóm miễn phí hết hạn (thời hạn 7 ngày).
 
 ## Cài đặt vào DSH
 
 ```sh
-dsh plugin --profile <name> add @zseven-w/dsh-ios
+dsh plugin --profile web add @zseven-w/dsh-ios@latest
 dsh web
 ```
 
@@ -145,7 +143,7 @@ dsh web
 >
 > ```sh
 > npm pack                                   # trong kho này → dsh-ios-0.1.0-rc.1.tgz
-> dsh plugin --profile <name> add /path/to/dsh-ios-0.1.0-rc.1.tgz
+> dsh plugin --profile web add /path/to/dsh-ios-0.1.0-rc.1.tgz
 > dsh web
 > ```
 
@@ -166,8 +164,7 @@ Một cuộc hội thoại đầu tiên điển hình:
 - **`ios_sim_ui_tree` / `ios_sim_tap_element` cần AXe** — cài bằng `brew install cameroncooke/axe/axe`, hoặc để plugin tải bản phát hành được ghim ở lần dùng đầu (cần mạng tới github.com). Thông báo lỗi luôn kèm gợi ý cài đặt đầy đủ; `DSH_IOS_AXE_BIN=/path/to/axe` ghi đè phân giải. Các công cụ hàng (`ios_sim_ui_rows` / `ios_sim_tap_row`) cũng cần AXe trên trình mô phỏng.
 - **`ios_sim_find_text` / `ios_sim_tap_text` báo thiếu trợ thủ OCR** — lần dùng đầu sẽ dùng `swiftc` (cần Xcode) biên dịch `assets/ocr.swift` đi kèm vào `~/Library/Caches/dsh-ios/bin/ocr`; lỗi kèm đường dẫn và gợi ý chính xác.
 - **`ios_sim_ui_rows` không tìm thấy hàng** — kết quả nêu lý do: độ sâu quá nông (tăng `max_depth`; trên điện thoại mỗi ảnh chụp sâu hơn tốn ~15–25 giây), không phải màn hình danh sách, hoặc thật sự không có thông tin trợ năng sau khi đọc sâu. Việc đọc nông không bao giờ bị báo nhầm là thiếu trợ năng.
-- **`ios_sim_leaks` trên trình mô phỏng iOS 26.2** — trên runtime iOS 26.2, `leaks` của Xcode có thể không kiểm tra được tiến trình trình mô phỏng với các chẩn đoán nghiêm trọng như `Failed to get DYLD info` hoặc lỗi minimal-corpse, kể cả khi đã bật Chế độ nhà phát triển. Công cụ suy giảm gọn gàng: bạn nhận được chẩn đoán thô, mục tiêu luôn được xác minh là đã tiếp tục, và không gì bị treo. Không có cách sửa phía plugin — khi gặp, hãy thử `mode: "memgraph"` hoặc một runtime khác.
-- **Lời gọi thiết bị thật thất bại với trạng thái mã hóa** — trạng thái của bảng nêu nguyên nhân thay vì đoán: `device-locked` (mở khóa điện thoại; nó tự phục hồi), `cert-untrusted` (tin cậy chứng chỉ WebDriverAgent trên thiết bị), `profile-expired` (ký nhóm miễn phí kéo dài 7 ngày — chạy lại `ios_real_start_wda` để build lại), `tunnel-failed` (kiểm tra liên kết USB/iproxyd), `device-unplugged` (dùng cáp USB truyền dữ liệu — ghép đôi chỉ qua Wi-Fi không thể chuyển tiếp cổng).
+- **`ios_sim_leaks` trên trình mô phỏng iOS 26.2** — trên runtime iOS 26.2, `leaks` của Xcode có thể không kiểm tra được tiến trình trình mô phỏng với các chẩn đoán nghiêm trọng như `Failed to get DYLD info` hoặc lỗi minimal-corpse, kể cả khi đã bật Chế độ nhà phát triển. Công cụ suy giảm gọn gàng: bạn nhận được chẩn đoán thô, mục tiêu luôn được xác minh là đã tiếp tục, và không gì bị treo. Không có cách sửa phía plugin — khi gặp, hãy thử `mode: "memgraph"` hoặc một runtime khác..
 - **Luồng tự dừng** — đó là chính sách nhàn rỗi, không phải sự cố: khi không có người tiêu thụ (bảng đóng, không thẻ nào được gắn, không tuyến nào hoạt động), luồng dừng sau 5 phút và khởi động lại ở lần gọi công cụ tiếp theo hoặc khi mở bảng. Luồng gặp sự cố khởi động lại nền trong ~5 giây.
 
 ## Phát triển

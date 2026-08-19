@@ -39,7 +39,7 @@ DSH iOS 시뮬레이터는 agent에게 대화 안의 진짜 iOS 시뮬레이터�
 | 🛠️ **21개 agent 도구** | 기기 목록, 부팅/종료, 스크린샷, 상호작용, 빌드 및 실행, 통합 로그, AXe 기반 UI 트리 + 요소별 탭, 목록/피드 행 작업, Vision OCR 찾기/탭, SwiftUI 미리보기 핫 리로드, 프로세스, 백트레이스, 누수 분석, 앱 정보. |
 | 👆 **인터랙티브 패널** | 실시간 영상에서 탭·드래그, 홈/회전/스크린샷/새로고침 아이콘 툴바(호버 툴팁), 크기 모드(适应 · 50–125% · S/M/L), 프레임 스타일(无框 / 边框 / 真机框), 최대 960px까지 드래그 크기 조절 및 더블클릭 리셋, 가로 모드 자동 확장. |
 | 🧾 **목록 및 피드 행** | `ios_sim_ui_rows`는 심층 접근성 스냅샷을 라벨과 범용적으로 파싱된 카운터가 있는 인덱스 행으로 변환합니다. `ios_sim_tap_row`는 행 내부의 상대 좌표를 탭하고, 카운터의 기대 ±1 변화로 동작을 검증합니다 — 목록 앱이 제공할 수 있는 유일하게 신뢰할 수 있는 확인 수단입니다. |
-| 🔐 **루프백 전용 전송** | serve-sim은 전용 포트 범위에서 127.0.0.1에만 바인딩합니다. 모든 라우트는 루프백 피어, 루프백 `Host`, Fetch-Metadata/Origin 검사를 요구하며, HMAC capability는 10분 내에 만료됩니다. 실기기의 WebDriverAgent 제어/MJPEG 터널도 같은 펜스 아래의 루프백 `iproxy` 포워딩입니다. |
+| 🔐 **루프백 전용 전송** | serve-sim은 전용 포트 범위에서 127.0.0.1에만 바인딩합니다. 모든 라우트는 루프백 피어, 루프백 `Host`, Fetch-Metadata/Origin 검사를 요구하며, HMAC capability는 10분 내에 만료됩니다.. |
 | ⚡ **SwiftUI 미리보기 핫 리로드** | `ios_sim_preview`는 패키지 밖에 일회용 호스트 앱을 생성하고, 미리보기를 dylib으로 빌드한 뒤, 재실행 없이 실행 중인 시뮬레이터에 수정 사항을 핫 스왑합니다(약 2–5초). |
 | 🧭 **시맨틱 UI 자동화** | `ios_sim_ui_tree`가 접근성 트리(AXe 기반)를 덤프하고 `ios_sim_tap_element`가 라벨이나 identifier로 탭합니다. 트리가 비어 있거나 퇴화한 경우 `ios_sim_find_text`가 화면을 OCR하고 `ios_sim_tap_text`가 일치하는 텍스트를 탭합니다 — 좌표 추측이 아닌 identity·텍스트 기반 탭입니다. |
 
@@ -117,8 +117,7 @@ DSH iOS 시뮬레이터는 agent에게 대화 안의 진짜 iOS 시뮬레이터�
 - 브라우저는 serve-sim의 포트와 절대 통신하지 않습니다. 모든 바이트는 plugin 소유의 `/_dsh/dsh-ios/*` 라우트를 통해 DSH 웹서버 오리진을 경유합니다: `/stream/<token>` (MJPEG 프록시), `/screenshot/<token>` (캐시된 PNG), `/ws?token=…` (HID 제어 릴레이), 그리고 `/grant`, `/capture`, `/status` 엔드포인트.
 - 토큰은 HMAC-SHA256 capability(`base64url(payload).base64url(mac)`)로 10분 내에 만료되며, DSH 홈별 키(`<DSH_HOME>/cache/dsh-ios/stream-access.key`, 0600, 원자적으로 생성)로 서명됩니다.
 - 모든 라우트는 capability를 확인하기 전에 루프백/신뢰 전송 펜스를 적용합니다: 루프백 피어 주소, 루프백 `Host`(DNS 리바인딩 거부), Fetch-Metadata/Origin 검사. 스크린샷 라우트는 plugin 캐시 디렉터리 안의 파일만 제공합니다(심볼릭 링크 거부, `realpath` 포함 여부 검사).
-- serve-sim은 루프백에서만 전용 포트 범위(3181–3244)로 포그라운드 자식 프로세스로 실행되므로, 사용자 자신의 3100 포트 serve-sim은 절대 건드리지 않습니다. `--host`는 사용되지 않습니다.
-- **실기기 전송** — WebDriverAgent 제어(REST, 기기 포트 8100)와 화면(MJPEG, 포트 9100) 터널은 USB 링크 위의 루프백 `iproxy` 포워딩입니다. 동일한 서명 라우트 펜스 뒤에 있으며, 브라우저는 여전히 DSH 웹서버 오리진과만 통신합니다.
+- serve-sim은 루프백에서만 전용 포트 범위(3181–3244)로 포그라운드 자식 프로세스로 실행되므로, 사용자 자신의 3100 포트 serve-sim은 절대 건드리지 않습니다. `--host`는 사용되지 않습니다.. 동일한 서명 라우트 펜스 뒤에 있으며, 브라우저는 여전히 DSH 웹서버 오리진과만 통신합니다.
 - **고아 프로세스 인수/회수** — 이전 DSH 호스트가 정상 종료되지 못해 죽었는데 serve-sim 헬퍼가 살아남았다면, 같은 기기를 인수합니다(고아 프로세스의 핸드셰이크가 기준). 다른 기기의 슬롯을 차지한 낡은 헬퍼는 `serve-sim -k`로 회수하고 한 번 재실행합니다.
 - **Keep-alive + 유휴 중지** — 크래시된 스트림은 백그라운드에서 재시작됩니다(약 5초 지연). 소비자가 0명이면 스트림은 5분 후 자동으로 중지됩니다. 의도적인 중지는 절대 되돌리지 않습니다. (실기기 러너는 의도적으로 유휴 회수에서 제외됩니다. 재시작에는 몇 분짜리 `xcodebuild` 재빌드가 필요하기 때문입니다.)
 
@@ -132,12 +131,12 @@ DSH iOS 시뮬레이터는 agent에게 대화 안의 진짜 iOS 시뮬레이터�
 - **AXe** (선택 — AXe 기반 도구에만 필요: `ios_sim_ui_tree` / `ios_sim_tap_element`, 그리고 시뮬레이터에서의 `ios_sim_ui_rows` / `ios_sim_tap_row`): `brew install cameroncooke/axe/axe`로 설치하거나, plugin이 고정 릴리스(v1.8.0, SHA-256 검증)를 `~/Library/Caches/dsh-ios/bin`에 자동 다운로드하게 하세요. `DSH_IOS_AXE_BIN`으로 해석 경로를 재정의할 수 있고, `DSH_IOS_AXE_OFFLINE=1`은 다운로드를 비활성화합니다.
 - **Vision OCR** (선택 — `ios_sim_find_text` / `ios_sim_tap_text`에만 필요): plugin이 첫 사용 시 번들된 `assets/ocr.swift`를 `swiftc`로 `~/Library/Caches/dsh-ios/bin/ocr`에 컴파일합니다(zh-Hans + en-US 인식).
 - **lldb attach**에는 macOS 개발자 모드가 필요합니다. `sudo DevToolsSecurity -enable`을 한 번 실행하세요. 그 전까지 `ios_sim_backtrace`는 Xcode의 `sample` 엔진(프로세스를 멈추지 않음)을 사용하고, `ios_sim_leaks`는 활성화 힌트와 함께 저하 동작합니다.
-- **실제 iPhone** — USB로 연결되고 화면이 잠금 해제된 iPhone(잠긴 화면에서는 WebDriverAgent를 시작할 수 없습니다. 자동 잠금을 '안 함'으로 설정하는 것을 고려하세요), 데이터 전송이 가능한 USB 케이블(Wi-Fi 전용 페어링은 포트 포워딩을 전달할 수 없음), 기기에서 활성화된 개발자 모드, `~/Library/Caches/dsh-ios/wda/src`의 WebDriverAgent 체크아웃(plugin은 여기에서 `WebDriverAgentRunner` scheme을 빌드합니다 — 아무것도 다운로드하거나 클론하지 않음), USB 터널용 libimobiledevice의 `iproxy`(`brew install libimobiledevice`)가 필요합니다. 첫 WDA 빌드는 서명된 WebDriverAgentRunner를 설치합니다. 메시지가 표시되면 기기에서 인증서를 신뢰하고, 무료 팀 서명 프로필이 만료되면(수명 7일) `ios_real_start_wda`를 다시 실행하세요.
+- **실제 iPhone** — USB로 연결되고 화면이 잠금 해제된 iPhone(잠긴 화면에서는 WebDriverAgent를 시작할 수 없습니다.. 첫 WDA 빌드는 서명된 WebDriverAgentRunner를 설치합니다. 메시지가 표시되면 기기에서 인증서를 신뢰하고, 무료 팀 서명 프로필이 만료되면(수명 7일) `ios_real_start_wda`를 다시 실행하세요.
 
 ## DSH에 설치
 
 ```sh
-dsh plugin --profile <name> add @zseven-w/dsh-ios
+dsh plugin --profile web add @zseven-w/dsh-ios@latest
 dsh web
 ```
 
@@ -145,7 +144,7 @@ dsh web
 >
 > ```sh
 > npm pack                                   # in this repository → dsh-ios-0.1.0-rc.1.tgz
-> dsh plugin --profile <name> add /path/to/dsh-ios-0.1.0-rc.1.tgz
+> dsh plugin --profile web add /path/to/dsh-ios-0.1.0-rc.1.tgz
 > dsh web
 > ```
 
@@ -166,8 +165,7 @@ dsh web
 - **`ios_sim_ui_tree` / `ios_sim_tap_element`에 AXe가 필요한 경우** — `brew install cameroncooke/axe/axe`로 설치하거나, plugin이 첫 사용 시 고정 릴리스를 다운로드하게 하세요(github.com 네트워크 필요). 오류 메시지에는 항상 전체 설치 힌트가 포함되어 있으며, `DSH_IOS_AXE_BIN=/path/to/axe`로 해석 경로를 재정의할 수 있습니다. 행 도구(`ios_sim_ui_rows` / `ios_sim_tap_row`)도 시뮬레이터에서는 AXe가 필요합니다.
 - **`ios_sim_find_text` / `ios_sim_tap_text`가 OCR 헬퍼가 없다고 보고하는 경우** — 첫 사용 시 번들된 `assets/ocr.swift`를 `swiftc`로(Xcode 필요) `~/Library/Caches/dsh-ios/bin/ocr`에 컴파일합니다. 오류에는 정확한 경로와 힌트가 포함됩니다.
 - **`ios_sim_ui_rows`가 행을 찾지 못하는 경우** — 결과에 이유가 표시됩니다: 깊이가 너무 얕음(`max_depth`를 올리세요. 휴대폰에서는 스냅샷 깊이를 올릴 때마다 약 15–25초 소요), 목록 화면이 아님, 또는 심층 읽기 후에도 정말 접근성 정보 없음. 얕은 읽기가 접근성 정보 부재로 잘못 보고되는 일은 절대 없습니다.
-- **iOS 26.2 시뮬레이터에서의 `ios_sim_leaks`** — iOS 26.2 런타임에서는 개발자 모드가 활성화되어 있어도 Xcode의 `leaks`가 시뮬레이터 프로세스를 검사하지 못하고 `Failed to get DYLD info` 또는 minimal-corpse 같은 치명적 진단 오류를 낼 수 있습니다. 도구는 깔끔하게 저하 동작합니다: 원시 진단이 그대로 반환되고, 대상 프로세스는 항상 재개되었는지 확인되며, 아무것도 멈춰 있지 않습니다. plugin 쪽에서 고칠 수 있는 문제는 없습니다 — 증상이 나타나면 `mode: "memgraph"`나 다른 런타임을 시도하세요.
-- **실기기 호출이 코드화된 상태로 실패하는 경우** — 패널의 상태가 추측 대신 원인을 알려 줍니다: `device-locked` (휴대폰 잠금 해제; 저절로 복구됨), `cert-untrusted` (기기에서 WebDriverAgent 인증서를 신뢰), `profile-expired` (무료 팀 서명은 7일 유효 — `ios_real_start_wda`를 다시 실행해 재빌드), `tunnel-failed` (USB 링크/iproxyd 확인), `device-unplugged` (데이터 전송 가능한 USB 케이블 사용 — Wi-Fi 전용 페어링은 포트 포워딩을 전달할 수 없음).
+- **iOS 26.2 시뮬레이터에서의 `ios_sim_leaks`** — iOS 26.2 런타임에서는 개발자 모드가 활성화되어 있어도 Xcode의 `leaks`가 시뮬레이터 프로세스를 검사하지 못하고 `Failed to get DYLD info` 또는 minimal-corpse 같은 치명적 진단 오류를 낼 수 있습니다. 도구는 깔끔하게 저하 동작합니다: 원시 진단이 그대로 반환되고, 대상 프로세스는 항상 재개되었는지 확인되며, 아무것도 멈춰 있지 않습니다. plugin 쪽에서 고칠 수 있는 문제는 없습니다 — 증상이 나타나면 `mode: "memgraph"`나 다른 런타임을 시도하세요..
 - **스트림이 저절로 멈추는 경우** — 크래시가 아니라 유휴 정책입니다. 소비자가 0명이면(패널 닫힘, 마운트된 카드 없음, 활성 라우트 없음) 스트림은 5분 후 중지되며, 다음 도구 호출이나 패널을 열 때 다시 시작됩니다. 크래시된 스트림은 약 5초 내에 백그라운드에서 재시작됩니다.
 
 ## 개발
