@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <sub>rc: <code>0.1.0-rc.1</code> अभी npm पर प्रकाशित नहीं हुआ है — देखें <a href="#dsh-में-इंस्टॉल-करें">इंस्टॉल करें</a></sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; वर्तमान प्लगइन रिलीज़: <code>0.1.0-rc.1</code> &middot; DSH <code>0.1.0-rc.6</code> के साथ परखा गया</sub>
 </p>
 
 <br />
@@ -140,14 +140,6 @@ DSH iOS सिम्युलेटर एजेंट को बातचीत
 dsh plugin --profile web add @zseven-w/dsh-ios@latest
 dsh web
 ```
-
-> **rc नोट** — `0.1.0-rc.1` अभी npm पर प्रकाशित नहीं हुआ है। तब तक पैक किया tarball इंस्टॉल करें:
->
-> ```sh
-> npm pack                                   # इस रिपॉज़िटरी में → dsh-ios-0.1.0-rc.1.tgz
-> dsh plugin --profile web add /path/to/dsh-ios-0.1.0-rc.1.tgz
-> dsh web
-> ```
 
 ## त्वरित शुरुआत
 

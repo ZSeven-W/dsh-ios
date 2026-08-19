@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <sub>rc: <code>0.1.0-rc.1</code> ist noch nicht auf npm veröffentlicht — siehe <a href="#in-dsh-installieren">Installieren</a></sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Aktuelle Plugin-Version: <code>0.1.0-rc.1</code> &middot; Getestet mit DSH <code>0.1.0-rc.6</code></sub>
 </p>
 
 <br />
@@ -138,14 +138,6 @@ Listen-/Feed-Apps fassen jedes Element in einer einzigen Accessibility-Zelle zus
 dsh plugin --profile web add @zseven-w/dsh-ios@latest
 dsh web
 ```
-
-> **rc-Hinweis** — `0.1.0-rc.1` ist noch nicht auf npm veröffentlicht. Installieren Sie bis dahin den gepackten Tarball:
->
-> ```sh
-> npm pack                                   # in this repository → dsh-ios-0.1.0-rc.1.tgz
-> dsh plugin --profile web add /path/to/dsh-ios-0.1.0-rc.1.tgz
-> dsh web
-> ```
 
 ## Schnellstart
 

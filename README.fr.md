@@ -139,14 +139,6 @@ dsh plugin --profile web add @zseven-w/dsh-ios@latest
 dsh web
 ```
 
-> **note rc** — `0.1.0-rc.1` n'est pas encore publié sur npm. En attendant, installez l'archive tarball empaquetée :
->
-> ```sh
-> npm pack                                   # in this repository → dsh-ios-0.1.0-rc.1.tgz
-> dsh plugin --profile web add /path/to/dsh-ios-0.1.0-rc.1.tgz
-> dsh web
-> ```
-
 ## Démarrage rapide
 
 Une première conversation type :

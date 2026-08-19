@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <sub>rc: <code>0.1.0-rc.1</code> henüz npm'de yayımlanmadı — bkz. <a href="#dshye-kurulum">Kurulum</a></sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Geçerli eklenti sürümü: <code>0.1.0-rc.1</code> &middot; DSH <code>0.1.0-rc.6</code> ile test edildi</sub>
 </p>
 
 <br />
@@ -138,14 +138,6 @@ Liste/akış uygulamaları her öğeyi, etiketi tüm özeti ve tüm sayaçları 
 dsh plugin --profile web add @zseven-w/dsh-ios@latest
 dsh web
 ```
-
-> **rc notu** — `0.1.0-rc.1` henüz npm'de yayımlanmadı. O zamana kadar paketlenmiş tarball'ı kurun:
->
-> ```sh
-> npm pack                                   # bu depoda → dsh-ios-0.1.0-rc.1.tgz
-> dsh plugin --profile web add /path/to/dsh-ios-0.1.0-rc.1.tgz
-> dsh web
-> ```
 
 ## Hızlı başlangıç
 

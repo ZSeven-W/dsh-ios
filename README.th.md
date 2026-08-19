@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <sub>rc: <code>0.1.0-rc.1</code> ยังไม่เผยแพร่บน npm — ดู <a href="#ติดตั้งลงใน-dsh">การติดตั้ง</a></sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; เวอร์ชันปลั๊กอินปัจจุบัน: <code>0.1.0-rc.1</code> &middot; ทดสอบกับ DSH <code>0.1.0-rc.6</code></sub>
 </p>
 
 <br />
@@ -140,14 +140,6 @@ DSH iOS ซิมูเลเตอร์มอบ iOS ซิมูเลเต�
 dsh plugin --profile web add @zseven-w/dsh-ios@latest
 dsh web
 ```
-
-> **หมายเหตุ rc** — `0.1.0-rc.1` ยังไม่เผยแพร่บน npm จนกว่าจะถึงตอนนั้น ให้ติดตั้ง tarball ที่แพ็กแล้ว:
->
-> ```sh
-> npm pack                                   # ในรีโพนี้ → dsh-ios-0.1.0-rc.1.tgz
-> dsh plugin --profile web add /path/to/dsh-ios-0.1.0-rc.1.tgz
-> dsh web
-> ```
 
 ## เริ่มต้นอย่างรวดเร็ว
 

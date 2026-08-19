@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <sub>rc: <code>0.1.0-rc.1</code>은 아직 npm에 게시되지 않았습니다 — <a href="#dsh에-설치">설치</a> 참조</sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; 현재 플러그인 릴리스: <code>0.1.0-rc.1</code> &middot; DSH <code>0.1.0-rc.6</code>에서 검증됨</sub>
 </p>
 
 <br />
@@ -139,14 +139,6 @@ DSH iOS 시뮬레이터는 agent에게 대화 안의 진짜 iOS 시뮬레이터�
 dsh plugin --profile web add @zseven-w/dsh-ios@latest
 dsh web
 ```
-
-> **rc 참고** — `0.1.0-rc.1`은 아직 npm에 게시되지 않았습니다. 게시 전까지는 패키징된 tarball을 설치하세요:
->
-> ```sh
-> npm pack                                   # in this repository → dsh-ios-0.1.0-rc.1.tgz
-> dsh plugin --profile web add /path/to/dsh-ios-0.1.0-rc.1.tgz
-> dsh web
-> ```
 
 ## 빠른 시작
 

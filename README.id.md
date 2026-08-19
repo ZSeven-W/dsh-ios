@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <sub>rc: <code>0.1.0-rc.1</code> belum dipublikasikan ke npm — lihat <a href="#pasang-di-dsh">Pemasangan</a></sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Rilis plugin saat ini: <code>0.1.0-rc.1</code> &middot; Diuji dengan DSH <code>0.1.0-rc.6</code></sub>
 </p>
 
 <br />
@@ -138,14 +138,6 @@ Aplikasi daftar/umpan menggabungkan setiap item ke dalam satu sel aksesibilitas 
 dsh plugin --profile web add @zseven-w/dsh-ios@latest
 dsh web
 ```
-
-> **Catatan rc** — `0.1.0-rc.1` belum dipublikasikan ke npm. Sampai saat itu, pasang tarball yang telah dikemas:
->
-> ```sh
-> npm pack                                   # di repositori ini → dsh-ios-0.1.0-rc.1.tgz
-> dsh plugin --profile web add /path/to/dsh-ios-0.1.0-rc.1.tgz
-> dsh web
-> ```
 
 ## Mulai cepat
 

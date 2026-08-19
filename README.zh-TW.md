@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <sub>rc 說明：<code>0.1.0-rc.1</code> 尚未發佈到 npm —— 見<a href="#安裝到-dsh">安裝</a></sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; 目前外掛版本: <code>0.1.0-rc.1</code> &middot; 已在 DSH <code>0.1.0-rc.6</code> 驗證</sub>
 </p>
 
 <br />
@@ -138,14 +138,6 @@ DSH iOS 模擬器讓智慧代理在對話裡擁有一台真正的 iOS 模擬器�
 dsh plugin --profile web add @zseven-w/dsh-ios@latest
 dsh web
 ```
-
-> **rc 說明**——`0.1.0-rc.1` 尚未發佈到 npm。發佈前請安裝打包好的 tarball：
->
-> ```sh
-> npm pack                                   # 在本倉庫內執行 → dsh-ios-0.1.0-rc.1.tgz
-> dsh plugin --profile web add /path/to/dsh-ios-0.1.0-rc.1.tgz
-> dsh web
-> ```
 
 ## 快速開始
 

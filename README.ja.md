@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <sub>rc: <code>0.1.0-rc.1</code> はまだ npm に公開されていません —— <a href="#dsh-にインストール">インストール</a> を参照</sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; 現在のプラグインリリース: <code>0.1.0-rc.1</code> &middot; DSH <code>0.1.0-rc.6</code> で検証済み</sub>
 </p>
 
 <br />
@@ -139,14 +139,6 @@ DSH iOS シミュレータは、エージェントに会話の中の本物の iO
 dsh plugin --profile web add @zseven-w/dsh-ios@latest
 dsh web
 ```
-
-> **rc ノート**——`0.1.0-rc.1` はまだ npm に公開されていません。公開までは、パックした tarball をインストールしてください。
->
-> ```sh
-> npm pack                                   # このリポジトリ内で実行 → dsh-ios-0.1.0-rc.1.tgz
-> dsh plugin --profile web add /path/to/dsh-ios-0.1.0-rc.1.tgz
-> dsh web
-> ```
 
 ## クイックスタート
 

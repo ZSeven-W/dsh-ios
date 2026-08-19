@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <sub>rc: <code>0.1.0-rc.1</code> is not published to npm yet — see <a href="#install-into-dsh">Install</a></sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Current plugin release: <code>0.1.0-rc.1</code> &middot; Tested with DSH <code>0.1.0-rc.6</code></sub>
 </p>
 
 <br />
@@ -132,7 +132,7 @@ List/feed apps aggregate each item into one accessibility cell whose label carri
 - **AXe** (optional — only the AXe-backed tools need it: `ios_sim_ui_tree` / `ios_sim_tap_element`, plus `ios_sim_ui_rows` / `ios_sim_tap_row` on a simulator): `brew install cameroncooke/axe/axe`, or let the plugin auto-download the pinned release (v1.8.0, SHA-256 verified) into `~/Library/Caches/dsh-ios/bin`. `DSH_IOS_AXE_BIN` overrides resolution; `DSH_IOS_AXE_OFFLINE=1` disables the download.
 - **Vision OCR** (optional — only `ios_sim_find_text` / `ios_sim_tap_text` need it): the plugin compiles its bundled `assets/ocr.swift` with `swiftc` on first use into `~/Library/Caches/dsh-ios/bin/ocr` (zh-Hans + en-US recognition).
 - **lldb attach** needs macOS Developer Mode: run `sudo DevToolsSecurity -enable` once. Until then `ios_sim_backtrace` uses Xcode's `sample` engine (non-suspending) and `ios_sim_leaks` degrades with the enable hint.
-- **Real iPhone** — a USB-connected iPhone with the screen unlocked (WebDriverAgent cannot start on a locked screen; consider Auto-Lock: Never), a data-capable USB cable (a Wi-Fi-only pairing cannot carry the port forward), Developer Mode enabled on the device, a WebDriverAgent checkout at `~/Library/Caches/dsh-ios/wda/src` (the plugin builds its `WebDriverAgentRunner` scheme from there — it never downloads or clones anything),. The first WDA build installs a signed WebDriverAgentRunner: trust its certificate on the device when prompted, and re-run `ios_real_start_wda` when the free-team signing profile expires (7-day lifetime).
+- **Real iPhone** — a USB-connected iPhone with the screen unlocked (WebDriverAgent cannot start on a locked screen; consider Auto-Lock: Never), a data-capable USB cable (a Wi-Fi-only pairing cannot carry the port forward), Developer Mode enabled on the device, a WebDriverAgent checkout at `~/Library/Caches/dsh-ios/wda/src` (the plugin builds its `WebDriverAgentRunner` scheme from there — it never downloads or clones anything). The first WDA build installs a signed WebDriverAgentRunner: trust its certificate on the device when prompted, and re-run `ios_real_start_wda` when the free-team signing profile expires (7-day lifetime).
 
 ## Install into DSH
 
@@ -140,14 +140,6 @@ List/feed apps aggregate each item into one accessibility cell whose label carri
 dsh plugin --profile web add @zseven-w/dsh-ios@latest
 dsh web
 ```
-
-> **rc note** — `0.1.0-rc.1` is not published to npm yet. Until then, install the packed tarball:
->
-> ```sh
-> npm pack                                   # in this repository → dsh-ios-0.1.0-rc.1.tgz
-> dsh plugin --profile web add /path/to/dsh-ios-0.1.0-rc.1.tgz
-> dsh web
-> ```
 
 ## Quick start
 

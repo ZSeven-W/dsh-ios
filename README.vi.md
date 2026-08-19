@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <sub>rc: <code>0.1.0-rc.1</code> chưa được xuất bản lên npm — xem <a href="#cài-đặt-vào-dsh">Cài đặt</a></sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Phiên bản plugin hiện tại: <code>0.1.0-rc.1</code> &middot; Đã kiểm thử với DSH <code>0.1.0-rc.6</code></sub>
 </p>
 
 <br />
@@ -138,14 +138,6 @@ Các ứng dụng danh sách/bảng tin gộp mỗi mục vào một ô trợ n�
 dsh plugin --profile web add @zseven-w/dsh-ios@latest
 dsh web
 ```
-
-> **Ghi chú rc** — `0.1.0-rc.1` chưa được xuất bản lên npm. Trước khi có, hãy cài tarball đã đóng gói:
->
-> ```sh
-> npm pack                                   # trong kho này → dsh-ios-0.1.0-rc.1.tgz
-> dsh plugin --profile web add /path/to/dsh-ios-0.1.0-rc.1.tgz
-> dsh web
-> ```
 
 ## Bắt đầu nhanh
 

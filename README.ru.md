@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <sub>rc: <code>0.1.0-rc.1</code> ещё не опубликован в npm — см. <a href="#установка-в-dsh">Установка</a></sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Текущая версия плагина: <code>0.1.0-rc.1</code> &middot; Проверено с DSH <code>0.1.0-rc.6</code></sub>
 </p>
 
 <br />
@@ -138,14 +138,6 @@ DSH iOS Simulator даёт агенту настоящий симулятор iO
 dsh plugin --profile web add @zseven-w/dsh-ios@latest
 dsh web
 ```
-
-> **Примечание о rc** — `0.1.0-rc.1` ещё не опубликован в npm. До тех пор устанавливайте упакованный tarball:
->
-> ```sh
-> npm pack                                   # в этом репозитории → dsh-ios-0.1.0-rc.1.tgz
-> dsh plugin --profile web add /path/to/dsh-ios-0.1.0-rc.1.tgz
-> dsh web
-> ```
 
 ## Быстрый старт
 
