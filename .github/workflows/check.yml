@@ -1,14 +1,15 @@
 # Build and run the full fixture suite on every push and PR.
 #
-# macOS, not ubuntu: this plugin's whole subject is Xcode tooling, so the
-# platform that can actually resolve `xcrun`, AXe and the Simulator frameworks
-# is the honest place to test it, even when the run itself touches no device.
+# Three jobs, cheapest first:
 #
-# DSH_IOS_SMOKE_SKIP_SIM=1 keeps CI deterministic: the suites cover backends,
-# fences, tool schemas and the playbook from fixtures, while the parts that
-# need a booted simulator or a USB-connected iPhone stay a local, human-run
-# step. A green run here is not a claim that a device works — see the
-# real-device checklist in the README.
+#   linux    build plus the two host-agnostic static smokes — the fast gate
+#   macos    typecheck and every fixture suite, on the platform whose toolchain
+#            this plugin actually talks about
+#   sim      boots a real simulator; experimental, so a flaky boot cannot block
+#
+# DSH_IOS_SMOKE_SKIP_SIM=1 keeps the first two deterministic. A green check is
+# therefore not a claim that a device works: the real-device path is verified
+# by a human, on a phone, against the checklist in the README.
 name: Plugin check
 
 on:
@@ -24,8 +25,31 @@ permissions:
   contents: read
 
 jobs:
+  linux:
+    name: Node 24 / build + static smokes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build
+        run: pnpm run build
+      - name: Static smoke — simulator panel (SSR only)
+        run: node scripts/dev-panel-smoke.mjs
+      - name: Static smoke — conversation cards (no simulator)
+        run: node scripts/dev-card-smoke.mjs
+        env:
+          DSH_IOS_SMOKE_SKIP_SIM: '1'
+
   macos:
-    name: Node 24 / macOS
+    name: Node 24 / fixture suites (macOS)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -52,3 +76,25 @@ jobs:
         run: pnpm test
         env:
           DSH_IOS_SMOKE_SKIP_SIM: '1'
+
+  sim:
+    # Experimental: boots a real iOS simulator on the macOS runner. Marked
+    # continue-on-error so a flaky simulator boot cannot block a PR.
+    name: macOS / live simulator smoke (experimental)
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build
+        run: pnpm run build
+      - name: Live simulator smoke (boots a simulator)
+        run: node scripts/dev-smoke.mjs
