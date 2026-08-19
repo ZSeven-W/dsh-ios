@@ -195,6 +195,12 @@ Các kiểm thử khói trong `scripts/` luyện `lib/` đã build (chỉ macOS 
 | `node scripts/dev-realstart-smoke.mjs` | Tuyến `/real-start`: hàng rào, từ chối mã hóa, chốt build/khởi chạy (tĩnh). |
 | `node scripts/dev-realtools-smoke.mjs` | Backend thiết bị thật của `ios_sim_screenshot` / `ios_sim_interact` / `ios_sim_ui_tree` / `ios_sim_tap_element` cùng `ios_real_start_wda`. |
 
+## Hệ sinh thái
+
+- [DSH Crew](https://github.com/ZSeven-W/dsh-crew) — giao việc cho agent DSH từ Claude Code / Codex
+- [DSH Noema](https://github.com/ZSeven-W/dsh-noema) — bộ nhớ dài hạn cho DSH
+- [DSH OpenPencil](https://github.com/ZSeven-W/dsh-openpencil) — xem và chỉnh sửa tài liệu thiết kế `.op` ngay trong hội thoại
+
 ## Ghi nhận &amp; giấy phép
 
 - [serve-sim](https://github.com/EvanBacon/serve-sim) — Evan Bacon — công cụ truyền phát trình mô phỏng (Apache-2.0; phụ thuộc runtime đi kèm).

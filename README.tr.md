@@ -195,6 +195,12 @@ pnpm run typecheck
 | `node scripts/dev-realstart-smoke.mjs` | `/real-start` rotası: çit, kodlu reddetmeler, derleme/başlatma kapısı (statik). |
 | `node scripts/dev-realtools-smoke.mjs` | `ios_sim_screenshot` / `ios_sim_interact` / `ios_sim_ui_tree` / `ios_sim_tap_element` gerçek cihaz arka uçları ve `ios_real_start_wda`. |
 
+## Ekosistem
+
+- [DSH Crew](https://github.com/ZSeven-W/dsh-crew) — Claude Code / Codex üzerinden DSH ajanlarına iş dağıtın
+- [DSH Noema](https://github.com/ZSeven-W/dsh-noema) — DSH için uzun süreli bellek
+- [DSH OpenPencil](https://github.com/ZSeven-W/dsh-openpencil) — `.op` tasarım belgelerini sohbet içinde inceleyin ve düzenleyin
+
 ## Teşekkürler &amp; lisans
 
 - [serve-sim](https://github.com/EvanBacon/serve-sim) — Evan Bacon — simülatör akış motoru (Apache-2.0; paketli çalışma zamanı bağımlılığı).

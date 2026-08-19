@@ -198,6 +198,12 @@ pnpm run typecheck
 | `node scripts/dev-realstart-smoke.mjs` | `/real-start` रूट: घेरा, कोडेड अस्वीकृतियाँ, बिल्ड/लॉन्च गेटिंग (स्टैटिक)। |
 | `node scripts/dev-realtools-smoke.mjs` | `ios_sim_screenshot` / `ios_sim_interact` / `ios_sim_ui_tree` / `ios_sim_tap_element` के असली-डिवाइस बैकएंड, साथ ही `ios_real_start_wda`। |
 
+## इकोसिस्टम
+
+- [DSH Crew](https://github.com/ZSeven-W/dsh-crew) — Claude Code / Codex से DSH एजेंट को काम सौंपें
+- [DSH Noema](https://github.com/ZSeven-W/dsh-noema) — DSH के लिए दीर्घकालिक स्मृति
+- [DSH OpenPencil](https://github.com/ZSeven-W/dsh-openpencil) — बातचीत के भीतर `.op` डिज़ाइन दस्तावेज़ देखें और संपादित करें
+
 ## श्रेय &amp; लाइसेंस
 
 - [serve-sim](https://github.com/EvanBacon/serve-sim) — Evan Bacon — सिम्युलेटर स्ट्रीमिंग इंजन (Apache-2.0; बंडल की गई रनटाइम निर्भरता)।

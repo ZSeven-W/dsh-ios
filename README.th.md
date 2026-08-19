@@ -198,6 +198,12 @@ pnpm run typecheck
 | `node scripts/dev-realstart-smoke.mjs` | เส้นทาง `/real-start`: รั้ว การปฏิเสธแบบรหัส ประตูบิลด์/เปิด (คงที่) |
 | `node scripts/dev-realtools-smoke.mjs` | แบ็กเอนด์อุปกรณ์จริงของ `ios_sim_screenshot` / `ios_sim_interact` / `ios_sim_ui_tree` / `ios_sim_tap_element` พร้อม `ios_real_start_wda` |
 
+## ระบบนิเวศ
+
+- [DSH Crew](https://github.com/ZSeven-W/dsh-crew) — มอบหมายงานให้เอเจนต์ DSH จาก Claude Code / Codex
+- [DSH Noema](https://github.com/ZSeven-W/dsh-noema) — หน่วยความจำระยะยาวสำหรับ DSH
+- [DSH OpenPencil](https://github.com/ZSeven-W/dsh-openpencil) — ตรวจดูและแก้ไขเอกสารออกแบบ `.op` ในบทสนทนา
+
 ## เครดิต &amp; ใบอนุญาต
 
 - [serve-sim](https://github.com/EvanBacon/serve-sim) — Evan Bacon — เอนจินสตรีมซิมูเลเตอร์ (Apache-2.0 dependency รันไทม์ที่แถมมา)

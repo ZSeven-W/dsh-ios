@@ -195,6 +195,12 @@ pnpm run typecheck
 | `node scripts/dev-realstart-smoke.mjs` | Маршрут `/real-start`: ограждение, закодированные отказы, контроль сборки/запуска (статика). |
 | `node scripts/dev-realtools-smoke.mjs` | Бэкенды реального устройства для `ios_sim_screenshot` / `ios_sim_interact` / `ios_sim_ui_tree` / `ios_sim_tap_element` плюс `ios_real_start_wda`. |
 
+## Экосистема
+
+- [DSH Crew](https://github.com/ZSeven-W/dsh-crew) — делегировать задачи агентам DSH из Claude Code / Codex
+- [DSH Noema](https://github.com/ZSeven-W/dsh-noema) — долговременная память для DSH
+- [DSH OpenPencil](https://github.com/ZSeven-W/dsh-openpencil) — просматривать и редактировать документы `.op` прямо в диалоге
+
 ## Благодарности &amp; лицензия
 
 - [serve-sim](https://github.com/EvanBacon/serve-sim) — Evan Bacon — движок трансляции симулятора (Apache-2.0; встроенная зависимость среды выполнения).

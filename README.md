@@ -198,6 +198,12 @@ The `scripts/` smoke tests exercise the built `lib/` (macOS only for the parts t
 | `node scripts/dev-realstart-smoke.mjs` | The `/real-start` route: fence, coded refusals, build/launch gating (static). |
 | `node scripts/dev-realtools-smoke.mjs` | Real-device backends of `ios_sim_screenshot` / `ios_sim_interact` / `ios_sim_ui_tree` / `ios_sim_tap_element` plus `ios_real_start_wda`. |
 
+## Ecosystem
+
+- [DSH Crew](https://github.com/ZSeven-W/dsh-crew) — dispatch work to DSH agents from Claude Code / Codex
+- [DSH Noema](https://github.com/ZSeven-W/dsh-noema) — long-term memory for DSH
+- [DSH OpenPencil](https://github.com/ZSeven-W/dsh-openpencil) — inspect and edit `.op` design documents inside a conversation
+
 ## Credits &amp; License
 
 - [serve-sim](https://github.com/EvanBacon/serve-sim) — Evan Bacon — the simulator streaming engine (Apache-2.0; bundled runtime dependency).

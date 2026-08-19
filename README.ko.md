@@ -196,6 +196,12 @@ pnpm run typecheck
 | `node scripts/dev-realstart-smoke.mjs` | `/real-start` 라우트: 펜스, 코드화된 거부, 빌드/실행 게이팅(정적). |
 | `node scripts/dev-realtools-smoke.mjs` | `ios_sim_screenshot` / `ios_sim_interact` / `ios_sim_ui_tree` / `ios_sim_tap_element`의 실기기 백엔드와 `ios_real_start_wda`. |
 
+## 생태계
+
+- [DSH Crew](https://github.com/ZSeven-W/dsh-crew) — Claude Code / Codex에서 DSH 에이전트로 작업 위임
+- [DSH Noema](https://github.com/ZSeven-W/dsh-noema) — DSH를 위한 장기 기억
+- [DSH OpenPencil](https://github.com/ZSeven-W/dsh-openpencil) — 대화 안에서 `.op` 디자인 문서 확인 및 편집
+
 ## 크레딧 및 라이선스
 
 - [serve-sim](https://github.com/EvanBacon/serve-sim) — Evan Bacon — 시뮬레이터 스트리밍 엔진(Apache-2.0; 번들된 런타임 의존성).

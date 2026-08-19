@@ -197,6 +197,12 @@ pnpm run typecheck
 | `node scripts/dev-realstart-smoke.mjs` | `/real-start` ルート: ガード、コード化された拒否、ビルド/起動ゲーティング（静的）。 |
 | `node scripts/dev-realtools-smoke.mjs` | `ios_sim_screenshot` / `ios_sim_interact` / `ios_sim_ui_tree` / `ios_sim_tap_element` の実機バックエンド、および `ios_real_start_wda`。 |
 
+## エコシステム
+
+- [DSH Crew](https://github.com/ZSeven-W/dsh-crew) — Claude Code / Codex から DSH エージェントに作業を委譲
+- [DSH Noema](https://github.com/ZSeven-W/dsh-noema) — DSH の長期記憶
+- [DSH OpenPencil](https://github.com/ZSeven-W/dsh-openpencil) — 会話の中で `.op` デザイン文書を閲覧・編集
+
 ## クレジットとライセンス
 
 - [serve-sim](https://github.com/EvanBacon/serve-sim) —— Evan Bacon —— シミュレータストリーミングエンジン（Apache-2.0。同梱のランタイム依存関係）。

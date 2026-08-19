@@ -195,6 +195,12 @@ Pengujian asap di `scripts/` melatih `lib/` yang telah dibangun (khusus macOS un
 | `node scripts/dev-realstart-smoke.mjs` | Rute `/real-start`: pagar, penolakan berkode, gerbang build/peluncuran (statis). |
 | `node scripts/dev-realtools-smoke.mjs` | Backend perangkat asli dari `ios_sim_screenshot` / `ios_sim_interact` / `ios_sim_ui_tree` / `ios_sim_tap_element` plus `ios_real_start_wda`. |
 
+## Ekosistem
+
+- [DSH Crew](https://github.com/ZSeven-W/dsh-crew) — delegasikan pekerjaan ke agen DSH dari Claude Code / Codex
+- [DSH Noema](https://github.com/ZSeven-W/dsh-noema) — memori jangka panjang untuk DSH
+- [DSH OpenPencil](https://github.com/ZSeven-W/dsh-openpencil) — periksa dan edit dokumen desain `.op` di dalam percakapan
+
 ## Kredit &amp; lisensi
 
 - [serve-sim](https://github.com/EvanBacon/serve-sim) — Evan Bacon — mesin streaming simulator (Apache-2.0; dependensi runtime bawaan).

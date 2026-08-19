@@ -195,6 +195,12 @@ pnpm run typecheck
 | `node scripts/dev-realstart-smoke.mjs` | `/real-start` 路由：圍欄、編碼拒絕、建置/啟動門控（純靜態）。 |
 | `node scripts/dev-realtools-smoke.mjs` | `ios_sim_screenshot` / `ios_sim_interact` / `ios_sim_ui_tree` / `ios_sim_tap_element` 的真機後端，以及 `ios_real_start_wda`。 |
 
+## 生態
+
+- [DSH Crew](https://github.com/ZSeven-W/dsh-crew) — 從 Claude Code / Codex 把任務派給 DSH agent
+- [DSH Noema](https://github.com/ZSeven-W/dsh-noema) — DSH 的長期記憶
+- [DSH OpenPencil](https://github.com/ZSeven-W/dsh-openpencil) — 在對話中檢視與編輯 `.op` 設計文件
+
 ## 致謝與授權
 
 - [serve-sim](https://github.com/EvanBacon/serve-sim) —— Evan Bacon —— 模擬器推流引擎（Apache-2.0；隨套件安裝的執行時期依賴）。
