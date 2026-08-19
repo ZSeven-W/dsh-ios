@@ -20,6 +20,9 @@ import http from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
+/** Stream sampling window. CI runners are slower than a warm laptop. */
+const STREAM_WINDOW_MS = process.env.CI ? 8000 : 2000
+
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 const { listDevices, bootDevice, shutdownDevice, bootedDevices } = await import(join(root, 'lib', 'simctl.js'))
@@ -86,10 +89,15 @@ try {
   )
 
   // ── 4. consume 2 seconds of the MJPEG stream ──────────────────────────────
+  // A diagnostic that CRASHES is worse than one that fails: if the response
+  // never arrives inside the window, `headers` must still carry strings so the
+  // step below can report "nothing arrived" instead of throwing on undefined.
   const streamResult = await new Promise((resolve, reject) => {
     let received = 0
-    let headers = {}
+    let headers = { contentType: '', cors: '' }
+    let responded = false
     const req = http.get(a.streamUrl, res => {
+      responded = true
       headers = {
         contentType: String(res.headers['content-type'] ?? ''),
         cors: String(res.headers['access-control-allow-origin'] ?? ''),
@@ -103,20 +111,25 @@ try {
       res.on('error', reject)
     })
     req.on('error', reject)
+    // The window is wider on CI: a runner that just booted a simulator needs
+    // longer for serve-sim's first frame than a warm developer machine does.
     const kill = setTimeout(() => {
       req.destroy()
-      resolve({ received, headers })
-    }, 2000)
+      resolve({ received, headers, responded })
+    }, STREAM_WINDOW_MS)
     kill.unref?.()
   })
   step(
     'stream endpoint is multipart MJPEG with CORS *',
-    streamResult.headers.contentType.startsWith('multipart/x-mixed-replace')
+    streamResult.responded
+      && streamResult.headers.contentType.startsWith('multipart/x-mixed-replace')
       && streamResult.headers.cors === '*',
-    `content-type=${streamResult.headers.contentType} cors=${streamResult.headers.cors}`,
+    streamResult.responded
+      ? `content-type=${streamResult.headers.contentType} cors=${streamResult.headers.cors}`
+      : `no response within ${STREAM_WINDOW_MS} ms`,
   )
   step(
-    'stream delivers >100KB in 2s',
+    `stream delivers >100KB in ${STREAM_WINDOW_MS / 1000}s`,
     streamResult.received > 100 * 1024,
     `${(streamResult.received / 1024).toFixed(1)} KB received`,
   )
