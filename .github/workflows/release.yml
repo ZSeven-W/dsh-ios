@@ -52,9 +52,19 @@ jobs:
 
       # A prerelease must never take the `latest` dist-tag: `npm install`
       # with no version would hand it to everyone.
+      #
+      # Publishing is skipped when the registry already has this version.
+      # npm refuses to publish over an existing version, so without the guard
+      # a re-pushed tag — or a version first published by hand — turns the
+      # release red for a reason nobody needs to act on.
       - name: Publish
         run: |
+          name="$(node -p "require('./package.json').name")"
           pkg="$(node -p "require('./package.json').version")"
+          if npm view "$name@$pkg" version >/dev/null 2>&1; then
+            echo "$name@$pkg is already on the registry — nothing to publish."
+            exit 0
+          fi
           case "$pkg" in
             *-*) dist_tag=next ;;
             *)   dist_tag=latest ;;
