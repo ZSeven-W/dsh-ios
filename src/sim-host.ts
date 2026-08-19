@@ -429,8 +429,20 @@ function execServeSim(
     }, (error, stdout, stderr) => {
       if (error !== null) {
         const detail = stderr.trim()
+        // `error.code` is null whenever the child died from a signal, which is
+        // exactly what a timeout looks like — so reporting the code alone turns
+        // every timeout into the useless string "failed (null)". Name the cause
+        // instead: a killed child is a timeout, a signalled one says which
+        // signal, and only a real exit reports its status.
+        const killed = (error as { killed?: boolean }).killed === true
+        const signal = (error as { signal?: string | null }).signal ?? null
+        const cause = killed
+          ? `timed out after ${timeoutMs} ms`
+          : signal !== null
+            ? `killed by ${signal}`
+            : `exit ${String(error.code)}`
         reject(new Error(
-          `serve-sim ${args.join(' ')} failed (${String(error.code)})${detail === '' ? '' : `: ${detail}`}`,
+          `serve-sim ${args.join(' ')} failed (${cause})${detail === '' ? '' : `: ${detail}`}`,
         ))
         return
       }
