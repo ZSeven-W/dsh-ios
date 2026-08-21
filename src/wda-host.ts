@@ -252,6 +252,12 @@ export interface WdaControl {
   /** Drag between absolute POINT coordinates over `duration` seconds. */
   dragFromToForDuration(drag: WdaDrag): Promise<void>
   typeText(text: string): Promise<void>
+  /** Lock the device screen (`POST /wda/lock`). */
+  lock(): Promise<void>
+  /** Dismiss the lock screen (`POST /wda/unlock`; no passcode entry). */
+  unlock(): Promise<void>
+  /** Bring up Siri (`POST /wda/siri/activate`, optional utterance). */
+  activateSiri(text?: string): Promise<void>
   screenshot(): Promise<StreamScreenshot>
   /** Accessibility tree (XML). */
   source(): Promise<string>
@@ -868,6 +874,22 @@ export class WdaClient {
     await this.#withSession('POST', '/wda/keys', { value: [text] })
   }
 
+  /** `POST /wda/lock` — lock the device screen. */
+  async lock(): Promise<void> {
+    await this.#withSession('POST', '/wda/lock', {})
+  }
+
+  /** `POST /wda/unlock` — dismiss the lock screen (no passcode entry). */
+  async unlock(): Promise<void> {
+    await this.#withSession('POST', '/wda/unlock', {})
+  }
+
+  /** `POST /wda/siri/activate` `{text}` — bring up Siri (optionally with an
+   * utterance; the panel's Siri button sends none). */
+  async activateSiri(text = ''): Promise<void> {
+    await this.#withSession('POST', '/wda/siri/activate', { text })
+  }
+
   /** `GET /screenshot` → base64 PNG (1206×2622 pixels on this device). */
   async screenshot(): Promise<StreamScreenshot> {
     const value = await this.#withSession<unknown>('GET', '/screenshot')
@@ -1198,6 +1220,9 @@ export class WdaController {
     tap: (x, y) => this.#withControl(() => this.#requireClient().tap(x, y)),
     dragFromToForDuration: drag => this.#withControl(() => this.#requireClient().dragFromToForDuration(drag)),
     typeText: text => this.#withControl(() => this.#requireClient().typeText(text)),
+    lock: () => this.#withControl(() => this.#requireClient().lock()),
+    unlock: () => this.#withControl(() => this.#requireClient().unlock()),
+    activateSiri: text => this.#withControl(() => this.#requireClient().activateSiri(text)),
     screenshot: () => this.#withControl(() => this.#requireClient().screenshot()),
     source: () => this.#withControl(() => this.#requireClient().source()),
     setSnapshotDepth: depth => this.#withControl(() => this.#requireClient().setSnapshotDepth(depth)),

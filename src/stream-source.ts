@@ -310,6 +310,12 @@ export interface WdaControllerLike {
     /** Absolute POINT coordinates + duration in seconds. */
     dragFromToForDuration(drag: { fromX: number; fromY: number; toX: number; toY: number; duration: number }): Promise<void>
     typeText(text: string): Promise<void>
+    /** Lock the device screen (`POST /wda/lock`). */
+    lock(): Promise<void>
+    /** Dismiss the lock screen (`POST /wda/unlock`). */
+    unlock(): Promise<void>
+    /** Bring up Siri (`POST /wda/siri/activate`, optional utterance). */
+    activateSiri(text?: string): Promise<void>
     setOrientation(orientation: string): Promise<void>
     screenshot(): Promise<{ pngBase64: string; width?: number; height?: number }>
     source(): Promise<string>
@@ -405,8 +411,23 @@ export class WdaStreamSource implements StreamSource {
       await this.wda.control.typeText(text)
     },
     deviceAction: async action => {
-      if (action !== 'app-switcher') {
-        throw new Error(`dsh-ios: the ${action} action is not available on a physical device yet`)
+      // The device-actions table (device-actions.ts) marks these four as
+      // WDA-deliverable; anything else has no physical-device equivalent
+      // (and the route already answers a coded 400 for those before this).
+      switch (action) {
+        case 'lock':
+          await this.wda.control.lock()
+          return
+        case 'unlock':
+          await this.wda.control.unlock()
+          return
+        case 'siri':
+          await this.wda.control.activateSiri()
+          return
+        case 'app-switcher':
+          break
+        default:
+          throw new Error(`dsh-ios: the ${action} action is not available on a physical device`)
       }
       // A real phone honours the gesture the simulator swallows: drag from the
       // home indicator to mid-screen, and let WDA hold the touch there for the
