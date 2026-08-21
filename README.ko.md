@@ -191,6 +191,7 @@ pnpm run typecheck
 
 ## 생태계
 
+- [DSH Android](https://github.com/ZSeven-W/dsh-android) — 대화 안에서 동작하는 Android 에뮬레이터와 USB 연결 기기 — 전부 adb로 구동
 - [DSH Crew](https://github.com/ZSeven-W/dsh-crew) — Claude Code / Codex에서 DSH 에이전트로 작업 위임
 - [DSH Noema](https://github.com/ZSeven-W/dsh-noema) — DSH를 위한 장기 기억
 - [DSH OpenPencil](https://github.com/ZSeven-W/dsh-openpencil) — 대화 안에서 `.op` 디자인 문서 확인 및 편집

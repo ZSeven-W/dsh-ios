@@ -190,6 +190,7 @@ pnpm run typecheck
 
 ## 生態
 
+- [DSH Android](https://github.com/ZSeven-W/dsh-android) — 在對話中執行 Android 模擬器或 USB 實機，全部由 adb 驅動
 - [DSH Crew](https://github.com/ZSeven-W/dsh-crew) — 從 Claude Code / Codex 把任務派給 DSH agent
 - [DSH Noema](https://github.com/ZSeven-W/dsh-noema) — DSH 的長期記憶
 - [DSH OpenPencil](https://github.com/ZSeven-W/dsh-openpencil) — 在對話中檢視與編輯 `.op` 設計文件

@@ -190,6 +190,7 @@ Các kiểm thử khói trong `scripts/` luyện `lib/` đã build (chỉ macOS 
 
 ## Hệ sinh thái
 
+- [DSH Android](https://github.com/ZSeven-W/dsh-android) — trình giả lập Android hoặc thiết bị cắm USB trực tiếp ngay trong hội thoại, điều khiển hoàn toàn qua adb
 - [DSH Crew](https://github.com/ZSeven-W/dsh-crew) — giao việc cho agent DSH từ Claude Code / Codex
 - [DSH Noema](https://github.com/ZSeven-W/dsh-noema) — bộ nhớ dài hạn cho DSH
 - [DSH OpenPencil](https://github.com/ZSeven-W/dsh-openpencil) — xem và chỉnh sửa tài liệu thiết kế `.op` ngay trong hội thoại

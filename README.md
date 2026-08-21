@@ -193,6 +193,7 @@ The `scripts/` smoke tests exercise the built `lib/` (macOS only for the parts t
 
 ## Ecosystem
 
+- [DSH Android](https://github.com/ZSeven-W/dsh-android) — a live Android emulator or USB device inside the conversation, driven entirely through adb
 - [DSH Crew](https://github.com/ZSeven-W/dsh-crew) — dispatch work to DSH agents from Claude Code / Codex
 - [DSH Noema](https://github.com/ZSeven-W/dsh-noema) — long-term memory for DSH
 - [DSH OpenPencil](https://github.com/ZSeven-W/dsh-openpencil) — inspect and edit `.op` design documents inside a conversation

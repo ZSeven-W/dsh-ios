@@ -190,6 +190,7 @@ pnpm run typecheck
 
 ## Ekosistem
 
+- [DSH Android](https://github.com/ZSeven-W/dsh-android) — sohbetin içinde canlı bir Android emülatörü ya da USB cihazı — tamamen adb üzerinden sürülür
 - [DSH Crew](https://github.com/ZSeven-W/dsh-crew) — Claude Code / Codex üzerinden DSH ajanlarına iş dağıtın
 - [DSH Noema](https://github.com/ZSeven-W/dsh-noema) — DSH için uzun süreli bellek
 - [DSH OpenPencil](https://github.com/ZSeven-W/dsh-openpencil) — `.op` tasarım belgelerini sohbet içinde inceleyin ve düzenleyin

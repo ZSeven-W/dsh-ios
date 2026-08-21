@@ -190,6 +190,7 @@ Les smoke tests de `scripts/` exercent le `lib/` compilé (macOS uniquement pour
 
 ## Écosystème
 
+- [DSH Android](https://github.com/ZSeven-W/dsh-android) — un émulateur Android ou un appareil USB, en direct dans la conversation, piloté entièrement via adb
 - [DSH Crew](https://github.com/ZSeven-W/dsh-crew) — déléguer des tâches aux agents DSH depuis Claude Code / Codex
 - [DSH Noema](https://github.com/ZSeven-W/dsh-noema) — mémoire à long terme pour DSH
 - [DSH OpenPencil](https://github.com/ZSeven-W/dsh-openpencil) — inspecter et modifier des documents `.op` dans une conversation

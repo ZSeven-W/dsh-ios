@@ -193,6 +193,7 @@ pnpm run typecheck
 
 ## इकोसिस्टम
 
+- [DSH Android](https://github.com/ZSeven-W/dsh-android) — बातचीत के भीतर लाइव Android एमुलेटर या USB डिवाइस — पूरी तरह adb से संचालित
 - [DSH Crew](https://github.com/ZSeven-W/dsh-crew) — Claude Code / Codex से DSH एजेंट को काम सौंपें
 - [DSH Noema](https://github.com/ZSeven-W/dsh-noema) — DSH के लिए दीर्घकालिक स्मृति
 - [DSH OpenPencil](https://github.com/ZSeven-W/dsh-openpencil) — बातचीत के भीतर `.op` डिज़ाइन दस्तावेज़ देखें और संपादित करें
