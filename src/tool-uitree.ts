@@ -409,10 +409,16 @@ export function pruneOffscreenTree(
   return { tree: kept, omitted }
 }
 
-/** True when the tree carries at least one labeled element. */
+/**
+ * True when the tree carries at least one labeled element. The Application
+ * container's OWN label does not count: WDA mirrors the app NAME into it, so
+ * every real-device tree carried "a label" and this predicate was always
+ * true on a phone — which silently disabled both the WP62 auto-deepen retry
+ * and the WP63 OCR-fallback hint (an app name is chrome, not content).
+ */
 export function hasLabeledNode(tree: readonly UiTreeNode[]): boolean {
   for (const node of tree) {
-    if (node.label !== undefined && node.label !== '') return true
+    if (node.type !== 'Application' && node.label !== undefined && node.label !== '') return true
     if (hasLabeledNode(node.children)) return true
   }
   return false
