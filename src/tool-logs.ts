@@ -129,12 +129,30 @@ class LogLineRing {
     const text = this.#partial + chunk.toString('utf8')
     const parts = text.split('\n')
     this.#partial = parts.pop() ?? ''
-    for (const part of parts) {
-      const line = stripAnsi(part).trimEnd()
-      if (line === '' || BANNER_PATTERN.test(line)) continue
-      this.lines.push(line)
-      this.bytes += Buffer.byteLength(line, 'utf8') + 1
-    }
+    for (const part of parts) this.#append(part)
+    this.#trim()
+  }
+
+  /**
+   * Flush the trailing unterminated line. A follow window is closed by
+   * SIGTERM, so the capture routinely ends mid-line — without this the last
+   * (often the most interesting) line was silently dropped.
+   */
+  flush(): void {
+    if (this.#partial === '') return
+    this.#append(this.#partial)
+    this.#partial = ''
+    this.#trim()
+  }
+
+  #append(part: string): void {
+    const line = stripAnsi(part).trimEnd()
+    if (line === '' || BANNER_PATTERN.test(line)) return
+    this.lines.push(line)
+    this.bytes += Buffer.byteLength(line, 'utf8') + 1
+  }
+
+  #trim(): void {
     while (this.lines.length > MAX_LOG_LINES || this.bytes > MAX_LOG_BYTES) {
       const removed = this.lines.shift()
       if (removed === undefined) break
@@ -251,6 +269,7 @@ function runLogCapture(options: RunLogOptions): Promise<LogCapture> {
           reject(new Error(`simctl spawn ${udid} log ${subcommand} failed (exit ${String(code)})${detail}`))
           return
         }
+        ring.flush()
         resolve({ lines: [...ring.lines], truncated: ring.truncated })
       })
     })
