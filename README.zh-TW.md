@@ -6,11 +6,11 @@
 
 <p align="center">
   <strong>在 <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a> 對話裡嵌入一台即時、可互動的 iOS 模擬器——USB 連接的真機 iPhone 同樣支援。</strong><br />
-  <sub>21 個智慧代理工具 &bull; 側邊欄即時 MJPEG 面板 &bull; 模擬器與 USB 真機 &bull; 清單/資訊流列級操作 &bull; SwiftUI 預覽熱重載</sub>
+  <sub>22 個智慧代理工具 &bull; 側邊欄即時 MJPEG 面板 &bull; 模擬器與 USB 真機 &bull; 清單/資訊流列級操作 &bull; SwiftUI 預覽熱重載</sub>
 </p>
 
 <p align="center">
-  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; 目前外掛程式版本：<code>0.1.0-rc.1</code> &middot; 已在 DSH <code>0.1.0-rc.6</code> 驗證</sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; 目前外掛程式版本：<code>0.1.0-rc.2</code> &middot; 已在 DSH <code>0.1.0-rc.6</code> 驗證</sub>
 </p>
 
 <p align="center">
@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; 目前外掛版本: <code>0.1.0-rc.1</code> &middot; 已在 DSH <code>0.1.0-rc.6</code> 驗證</sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; 目前外掛版本: <code>0.1.0-rc.2</code> &middot; 已在 DSH <code>0.1.0-rc.6</code> 驗證</sub>
 </p>
 
 <br />
@@ -36,7 +36,7 @@ DSH iOS 模擬器讓智慧代理在對話裡擁有一台真正的 iOS 模擬器�
 | --- | --- |
 | 🖥️ **對話裡的即時模擬器** | 已啟動裝置的 serve-sim MJPEG 畫面，經簽章後的 `/_dsh/dsh-ios/*` 路由代理進常駐的右側面板——瀏覽器永遠不會接觸 serve-sim 的連接埠。 |
 | 📱 **USB 真機 iPhone** | `ios_real_start_wda` 在已連接的手機上建置並啟動 WebDriverAgent，把控制（REST）與畫面（MJPEG）連接埠經回送通道轉送；同一套面板、工具、卡片與狀態膠囊即可驅動真機。裝置必須處於解鎖狀態，真機帳號上的每一次點按都受外掛程式的「先識別、再點按」規則約束。 |
-| 🛠️ **21 個智慧代理工具** | 裝置清單、啟動/關閉、截圖、互動、建置執行、統一記錄檔、基於 AXe 的 UI 樹與按元素點擊、清單/資訊流列級操作、Vision OCR 找字/點字、SwiftUI 預覽熱重載、處理程序清單、呼叫堆疊、洩漏分析、App 資訊。 |
+| 🛠️ **22 個智慧代理工具** | 裝置清單、啟動/關閉、截圖、互動、建置執行、統一記錄檔、基於 AXe 的 UI 樹與按元素點擊、清單/資訊流列級操作、Vision OCR 找字/點字、SwiftUI 預覽熱重載、處理程序清單、呼叫堆疊、洩漏分析、App 資訊。 |
 | 👆 **可互動面板** | 在即時畫面上點按、拖曳；Home / 旋轉 / 截圖 / 重新整理圖示工具列（懸停提示）；尺寸模式（适应 · 50–125% · S/M/L）；外框樣式（无框 / 边框 / 真机框）；拖曳調寬上限 960px、雙擊重設；橫向畫面自動加寬。 |
 | 🧾 **清單與資訊流列** | `ios_sim_ui_rows` 把深層無障礙快照轉成帶索引、標籤與通用解析計數器的列；`ios_sim_tap_row` 在列內按相對座標點按，並用計數器符合預期的 ±1 變化驗證操作是否生效——這是清單類 App 唯一可靠的確認方式。 |
 | 🔐 **僅回送的傳輸** | serve-sim 只綁定 127.0.0.1 的專屬連接埠段；每條路由都要求回送對端、回送 `Host` 與 Fetch-Metadata/Origin 驗證；HMAC 能力權杖 10 分鐘內過期。。 |
@@ -45,7 +45,7 @@ DSH iOS 模擬器讓智慧代理在對話裡擁有一台真正的 iOS 模擬器�
 
 ## 工具
 
-全部 21 個工具在任何主機上都會註冊，且只回傳純 JSON——視覺資料只透過 `presentationMeta` + 簽章路由進入介面，絕不以圖片塊形式回傳。模擬器 udid 自動走 simctl/serve-sim，真機 udid 自動走 WebDriverAgent。非 macOS 主機（或 serve-sim 無法解析）上工具仍然註冊，但呼叫時會回傳明確的錯誤；唯一的例外是 `ios_sim_preview` 的 `status`，它在任何主機上都會如實回傳 `{ running: false }`。
+全部 22 個工具在任何主機上都會註冊，且只回傳純 JSON——視覺資料只透過 `presentationMeta` + 簽章路由進入介面，絕不以圖片塊形式回傳。模擬器 udid 自動走 simctl/serve-sim，真機 udid 自動走 WebDriverAgent。非 macOS 主機（或 serve-sim 無法解析）上工具仍然註冊，但呼叫時會回傳明確的錯誤；唯一的例外是 `ios_sim_preview` 的 `status`，它在任何主機上都會如實回傳 `{ running: false }`。
 
 ### 核心模擬器工具
 
@@ -83,6 +83,7 @@ DSH iOS 模擬器讓智慧代理在對話裡擁有一台真正的 iOS 模擬器�
 | --- | --- | --- |
 | `ios_sim_find_text` | 用外掛程式編譯的 Vision 助手對已啟動模擬器或 USB 真機的目前螢幕做 OCR（識別準確，zh-Hans + en-US，首次使用由 `swiftc` 編譯進 `~/Library/Caches/dsh-ios/bin/ocr`）。適用於無障礙樹為空或退化、文字以圖形渲染（角標數字、嵌進圖片的價格）或需要獨立核對螢幕內容的場景。先擷取一張新截圖，再回傳 `{device, size, items:[{text, confidence, rect}]}`——rect 是以裝置點為單位的框（原點在左上），按信心度排序，輸出上限約 40 KB（`truncated` 表示丟掉了信心度最低的尾部；可用 `query` 收窄或調高 `min_confidence`）。 | `udid`（可選）、`query`（不區分大小寫的子字串）、`min_confidence`（預設 0.3） |
 | `ios_sim_tap_text` | 對目前螢幕做 OCR 並點按最佳文字匹配的中心——沿用與 `ios_sim_tap_element` 相同的「先精確、再忽略大小寫包含、多候選報歧義」規則，適用於無障礙樹看不到的文字（無 a11y 的 App、角標數字、嵌進圖片的文字）。真機上透過 WebDriverAgent 落在裝置絕對座標；模擬器上經 serve-sim 控制以歸一化座標下發（先呼叫 `ios_sim_boot`）。約 300 毫秒後附一張新截圖展示效果；傳 `expect_text` / `expect_gone` 則點擊與驗證合併為一次往返（`expected.matched`）。在真機上每一次點按都有真實後果——絕不靠點按來試探一個未識別的控制項。 | `udid`（可選）、`query`（必填）、`min_confidence`、`expect_text`、`expect_gone` |
+| `ios_sim_wait_for` | 等待某段文字在螢幕上出現或消失：重用 `ios_sim_find_text` 的截圖+OCR 流程輪詢，直到條件成立或逾時（預設 8 秒，上限 60 秒）。逾時是正常的 `matched:false` 結果，絕不擲錯——一次呼叫取代手動循環 find_text（實機上每輪約 1.2 秒）。命中時 `item` 帶回 OCR 文字、信心值與裝置點座標框。 | `udid`（選填）、`text`（必填）、`mode`（`appear`/`disappear`）、`timeout_ms`、`min_confidence` |
 
 ### 記錄檔工具
 
@@ -125,8 +126,8 @@ DSH iOS 模擬器讓智慧代理在對話裡擁有一台真正的 iOS 模擬器�
 
 - **macOS + 完整版 Xcode**——僅裝 Command Line Tools 不夠。`xcodebuild`、`xcrun simctl` 和模擬器執行時期都隨 Xcode 提供。
 - **Xcode 中至少安裝一個 iOS 模擬器執行時期**。
-- **DSH ≥ 0.1.0-rc.6 且使用 Web 版**，才能顯示面板。無頭（headless）設定下外掛程式同樣可用：21 個工具照常工作，只是沒有即時畫面。
-- **非 macOS 主機**：外掛程式依然能載入，21 個工具也會註冊，但每次呼叫都會回傳明確的錯誤訊息（`iOS Simulator requires macOS with Xcode …`）。
+- **DSH ≥ 0.1.0-rc.6 且使用 Web 版**，才能顯示面板。無頭（headless）設定下外掛程式同樣可用：22 個工具照常工作，只是沒有即時畫面。
+- **非 macOS 主機**：外掛程式依然能載入，22 個工具也會註冊，但每次呼叫都會回傳明確的錯誤訊息（`iOS Simulator requires macOS with Xcode …`）。
 - **serve-sim** 作為本外掛程式的 npm 依賴隨套件安裝，正式安裝時會從本地解析；開發目錄則回退到 `npx -y serve-sim`（首次使用需要連網）。
 - **AXe**（可選——只有基於 AXe 的工具需要：`ios_sim_ui_tree` / `ios_sim_tap_element`，以及模擬器上的 `ios_sim_ui_rows` / `ios_sim_tap_row`）：`brew install cameroncooke/axe/axe`，或讓外掛程式自動下載固定版本（v1.8.0，驗證 SHA-256）到 `~/Library/Caches/dsh-ios/bin`。`DSH_IOS_AXE_BIN` 可覆蓋解析結果；`DSH_IOS_AXE_OFFLINE=1` 可停用下載。
 - **Vision OCR**（可選——只有 `ios_sim_find_text` / `ios_sim_tap_text` 需要）：外掛程式首次使用時用 `swiftc` 把內建的 `assets/ocr.swift` 編譯到 `~/Library/Caches/dsh-ios/bin/ocr`（識別 zh-Hans + en-US）。

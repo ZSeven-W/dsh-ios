@@ -1,6 +1,6 @@
 {
   "name": "@zseven-w/dsh-ios",
-  "version": "0.1.0-rc.1",
+  "version": "0.1.0-rc.2",
   "description": "DeepSeek Harness plugin for the iOS Simulator — build, run, and interact with a live simulator stream inside a conversation. Tested with DSH 0.1.0-rc.6.",
   "license": "MIT",
   "keywords": [

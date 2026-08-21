@@ -6,11 +6,11 @@
 
 <p align="center">
   <strong>在 <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a> 对话里嵌入一台实时、可交互的 iOS 模拟器——USB 连接的真机 iPhone 同样支持。</strong><br />
-  <sub>21 个智能体工具 &bull; 侧边栏实时 MJPEG 面板 &bull; 模拟器与 USB 真机 &bull; 列表/信息流行级操作 &bull; SwiftUI 预览热重载</sub>
+  <sub>22 个智能体工具 &bull; 侧边栏实时 MJPEG 面板 &bull; 模拟器与 USB 真机 &bull; 列表/信息流行级操作 &bull; SwiftUI 预览热重载</sub>
 </p>
 
 <p align="center">
-  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; 当前插件版本：<code>0.1.0-rc.1</code> &middot; 已在 DSH <code>0.1.0-rc.6</code> 验证</sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; 当前插件版本：<code>0.1.0-rc.2</code> &middot; 已在 DSH <code>0.1.0-rc.6</code> 验证</sub>
 </p>
 
 <p align="center">
@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; 当前插件版本: <code>0.1.0-rc.1</code> &middot; 已在 DSH <code>0.1.0-rc.6</code> 验证</sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; 当前插件版本: <code>0.1.0-rc.2</code> &middot; 已在 DSH <code>0.1.0-rc.6</code> 验证</sub>
 </p>
 
 <br />
@@ -36,7 +36,7 @@ DSH iOS 模拟器让智能体在对话里拥有一台真正的 iOS 模拟器，�
 | --- | --- |
 | 🖥️ **对话里的实时模拟器** | 已启动设备的 serve-sim MJPEG 画面，经签名后的 `/_dsh/dsh-ios/*` 路由代理进常驻的右侧面板——浏览器永远不会接触 serve-sim 的端口。 |
 | 📱 **USB 真机 iPhone** | `ios_real_start_wda` 在已连接的手机上构建并启动 WebDriverAgent，把控制（REST）与画面（MJPEG）端口经回环隧道转发；同一套面板、工具、卡片与状态胶囊即可驱动真机。设备必须处于解锁状态，真机账户上的每一次点按都受插件的“先识别、再点按”规则约束。 |
-| 🛠️ **21 个智能体工具** | 设备列表、启动/关闭、截图、交互、构建运行、统一日志、基于 AXe 的 UI 树与按元素点击、列表/信息流行级操作、Vision OCR 找字/点字、SwiftUI 预览热重载、进程列表、调用栈、泄漏分析、App 信息。 |
+| 🛠️ **22 个智能体工具** | 设备列表、启动/关闭、截图、交互、构建运行、统一日志、基于 AXe 的 UI 树与按元素点击、列表/信息流行级操作、Vision OCR 找字/点字、SwiftUI 预览热重载、进程列表、调用栈、泄漏分析、App 信息。 |
 | 👆 **可交互面板** | 在实时画面上点按、拖拽；Home / 旋转 / 截图 / 刷新图标工具栏（悬停提示）；尺寸模式（适应 · 50–125% · S/M/L）；边框样式（无框 / 边框 / 真机框）；拖拽调宽上限 960px、双击复位；横屏自动加宽。 |
 | 🧾 **列表与信息流行** | `ios_sim_ui_rows` 把深层无障碍快照转成带索引、标签与通用解析计数器的行；`ios_sim_tap_row` 在行内按相对坐标点按，并用计数器符合预期的 ±1 变化验证操作是否生效——这是列表类 App 唯一可靠的确认方式。 |
 | 🔐 **仅回环的传输** | serve-sim 只绑定 127.0.0.1 的专属端口段；每条路由都要求回环对端、回环 `Host` 与 Fetch-Metadata/Origin 校验；HMAC 能力令牌 10 分钟内过期。。 |
@@ -45,7 +45,7 @@ DSH iOS 模拟器让智能体在对话里拥有一台真正的 iOS 模拟器，�
 
 ## 工具
 
-全部 21 个工具在任何主机上都会注册，且只返回纯 JSON——视觉数据只通过 `presentationMeta` + 签名路由进入界面，绝不以图片块形式返回。模拟器 udid 自动走 simctl/serve-sim，真机 udid 自动走 WebDriverAgent。非 macOS 主机（或 serve-sim 无法解析）上工具仍然注册，但调用时会返回明确的错误；唯一的例外是 `ios_sim_preview` 的 `status`，它在任何主机上都会如实返回 `{ running: false }`。
+全部 22 个工具在任何主机上都会注册，且只返回纯 JSON——视觉数据只通过 `presentationMeta` + 签名路由进入界面，绝不以图片块形式返回。模拟器 udid 自动走 simctl/serve-sim，真机 udid 自动走 WebDriverAgent。非 macOS 主机（或 serve-sim 无法解析）上工具仍然注册，但调用时会返回明确的错误；唯一的例外是 `ios_sim_preview` 的 `status`，它在任何主机上都会如实返回 `{ running: false }`。
 
 ### 核心模拟器工具
 
@@ -83,6 +83,7 @@ DSH iOS 模拟器让智能体在对话里拥有一台真正的 iOS 模拟器，�
 | --- | --- | --- |
 | `ios_sim_find_text` | 用插件编译的 Vision 助手对已启动模拟器或 USB 真机的当前屏幕做 OCR（识别准确，zh-Hans + en-US，首次使用由 `swiftc` 编译进 `~/Library/Caches/dsh-ios/bin/ocr`）。适用于无障碍树为空或退化、文字以图形渲染（角标数字、嵌进图片的价格）或需要独立核对屏幕内容的场景。先截取一张新截图，再返回 `{device, size, items:[{text, confidence, rect}]}`——rect 是以设备点为单位的框（原点在左上），按置信度排序，输出上限约 40 KB（`truncated` 表示丢掉了置信度最低的尾部；可用 `query` 收窄或调高 `min_confidence`）。 | `udid`（可选）、`query`（不区分大小写的子串）、`min_confidence`（默认 0.3） |
 | `ios_sim_tap_text` | 对当前屏幕做 OCR 并点按最佳文字匹配的中心——沿用与 `ios_sim_tap_element` 相同的“先精确、再忽略大小写包含、多候选报歧义”规则，适用于无障碍树看不到的文字（无 a11y 的 App、角标数字、嵌进图片的文字）。真机上通过 WebDriverAgent 落在设备绝对坐标；模拟器上经 serve-sim 控制以归一化坐标下发（先调用 `ios_sim_boot`）。约 300 毫秒后附一张新截图展示效果；传 `expect_text` / `expect_gone` 则点击与验证合并为一次往返（`expected.matched`）。在真机上每一次点按都有真实后果——绝不靠点按来试探一个未识别的控件。 | `udid`（可选）、`query`（必填）、`min_confidence`、`expect_text`、`expect_gone` |
+| `ios_sim_wait_for` | 等待某段文字在屏幕上出现或消失：复用 `ios_sim_find_text` 的截图+OCR 流水线轮询，直到条件成立或超时（默认 8 秒，上限 60 秒）。超时是正常的 `matched:false` 结果，绝不抛错——一次调用替代手动循环 find_text（真机上每轮约 1.2 秒）。命中时 `item` 携带 OCR 文字、置信度与设备点坐标框。 | `udid`（可选）、`text`（必填）、`mode`（`appear`/`disappear`）、`timeout_ms`、`min_confidence` |
 
 ### 日志工具
 
@@ -125,8 +126,8 @@ DSH iOS 模拟器让智能体在对话里拥有一台真正的 iOS 模拟器，�
 
 - **macOS + 完整版 Xcode**——仅装 Command Line Tools 不够。`xcodebuild`、`xcrun simctl` 和模拟器运行时都随 Xcode 提供。
 - **Xcode 中至少安装一个 iOS 模拟器运行时**。
-- **DSH ≥ 0.1.0-rc.6 且使用 Web 版**，才能显示面板。无头（headless）配置下插件同样可用：21 个工具照常工作，只是没有实时画面。
-- **非 macOS 主机**：插件依然能加载，21 个工具也会注册，但每次调用都会返回明确的错误信息（`iOS Simulator requires macOS with Xcode …`）。
+- **DSH ≥ 0.1.0-rc.6 且使用 Web 版**，才能显示面板。无头（headless）配置下插件同样可用：22 个工具照常工作，只是没有实时画面。
+- **非 macOS 主机**：插件依然能加载，22 个工具也会注册，但每次调用都会返回明确的错误信息（`iOS Simulator requires macOS with Xcode …`）。
 - **serve-sim** 作为本插件的 npm 依赖随包安装，正式安装时会从本地解析；开发目录则回退到 `npx -y serve-sim`（首次使用需要联网）。
 - **AXe**（可选——只有基于 AXe 的工具需要：`ios_sim_ui_tree` / `ios_sim_tap_element`，以及模拟器上的 `ios_sim_ui_rows` / `ios_sim_tap_row`）：`brew install cameroncooke/axe/axe`，或让插件自动下载固定版本（v1.8.0，校验 SHA-256）到 `~/Library/Caches/dsh-ios/bin`。`DSH_IOS_AXE_BIN` 可覆盖解析结果；`DSH_IOS_AXE_OFFLINE=1` 可禁用下载。
 - **Vision OCR**（可选——只有 `ios_sim_find_text` / `ios_sim_tap_text` 需要）：插件首次使用时用 `swiftc` 把内置的 `assets/ocr.swift` 编译到 `~/Library/Caches/dsh-ios/bin/ocr`（识别 zh-Hans + en-US）。

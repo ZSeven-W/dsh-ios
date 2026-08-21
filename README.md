@@ -6,11 +6,11 @@
 
 <p align="center">
   <strong>A live, interactive iOS Simulator inside a <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a> conversation — plus your real iPhone over USB.</strong><br />
-  <sub>21 agent tools &bull; live MJPEG sidebar panel &bull; simulator &amp; real iPhone over USB &bull; list/feed row actions &bull; SwiftUI preview hot reload</sub>
+  <sub>22 agent tools &bull; live MJPEG sidebar panel &bull; simulator &amp; real iPhone over USB &bull; list/feed row actions &bull; SwiftUI preview hot reload</sub>
 </p>
 
 <p align="center">
-  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Current plugin release: <code>0.1.0-rc.1</code> &middot; Tested with DSH <code>0.1.0-rc.6</code></sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Current plugin release: <code>0.1.0-rc.2</code> &middot; Tested with DSH <code>0.1.0-rc.6</code></sub>
 </p>
 
 <p align="center">
@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Current plugin release: <code>0.1.0-rc.1</code> &middot; Tested with DSH <code>0.1.0-rc.6</code></sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Current plugin release: <code>0.1.0-rc.2</code> &middot; Tested with DSH <code>0.1.0-rc.6</code></sub>
 </p>
 
 <br />
@@ -36,7 +36,7 @@ DSH iOS Simulator gives the agent a real iOS Simulator inside the conversation �
 | --- | --- |
 | 🖥️ **Live simulator in the conversation** | A serve-sim MJPEG stream of the booted device, proxied through signed `/_dsh/dsh-ios/*` routes into a persistent right-side panel — the browser never touches serve-sim's port. |
 | 📱 **Real iPhone over USB** | `ios_real_start_wda` builds and launches WebDriverAgent on a connected phone and tunnels its control (REST) and screen (MJPEG) ports over loopback; the same panel, tools, cards, and status capsule then drive the phone. The device must be unlocked, and every real-account tap is gated by the plugin's identify-before-tap rules. |
-| 🛠️ **21 agent tools** | Devices, boot/shutdown, screenshot, interact, build &amp; run, unified logs, AXe-backed UI tree + tap-by-element, list/feed row actions, Vision OCR find/tap, SwiftUI preview hot reload, processes, backtrace, leaks, app info. |
+| 🛠️ **22 agent tools** | Devices, boot/shutdown, screenshot, interact, build &amp; run, unified logs, AXe-backed UI tree + tap-by-element, list/feed row actions, Vision OCR find/tap, SwiftUI preview hot reload, processes, backtrace, leaks, app info. |
 | 👆 **Interactive panel** | Tap and drag on the live video; Home / rotate / screenshot / refresh icon toolbar with hover tooltips; size modes (适应 · 50–125% · S/M/L); frame styles (无框 / 边框 / 真机框); drag-resize up to 960 px with double-click reset; landscape auto-widen. |
 | 🧾 **List &amp; feed rows** | `ios_sim_ui_rows` turns deep accessibility snapshots into indexed rows with labels and generically parsed counters; `ios_sim_tap_row` taps inside a row at relative coordinates and verifies the action by the counter's expected ±1 change — the only reliable confirmation a list app offers. |
 | 🔐 **Loopback-only transport** | serve-sim binds 127.0.0.1 in a dedicated port range; every route requires a loopback peer, a loopback `Host`, and Fetch-Metadata/Origin checks; HMAC capabilities expire within 10 minutes. The WebDriverAgent control/MJPEG tunnels on a real device are loopback usbmux forwards under the same fence. |
@@ -45,7 +45,7 @@ DSH iOS Simulator gives the agent a real iOS Simulator inside the conversation �
 
 ## Tools
 
-All 21 tools are registered on every host and return plain JSON — visual bytes reach the UI only through `presentationMeta` + signed routes, never as image blocks. Simulator udids route through simctl/serve-sim; physical-device udids route through WebDriverAgent automatically. On non-macOS hosts (or when serve-sim is unresolvable) the tools stay registered but fail with an explanatory error; the one exception is `ios_sim_preview` `status`, which truthfully reports `{ running: false }` on any host.
+All 22 tools are registered on every host and return plain JSON — visual bytes reach the UI only through `presentationMeta` + signed routes, never as image blocks. Simulator udids route through simctl/serve-sim; physical-device udids route through WebDriverAgent automatically. On non-macOS hosts (or when serve-sim is unresolvable) the tools stay registered but fail with an explanatory error; the one exception is `ios_sim_preview` `status`, which truthfully reports `{ running: false }` on any host.
 
 ### Core simulator tools
 
@@ -83,6 +83,7 @@ List/feed apps aggregate each item into one accessibility cell whose label carri
 | --- | --- | --- |
 | `ios_sim_find_text` | OCR the CURRENT screen of a booted simulator or a USB-connected phone with the plugin-compiled Vision helper (accurate recognition, zh-Hans + en-US, compiled with `swiftc` on first use into `~/Library/Caches/dsh-ios/bin/ocr`). Use it when the accessibility tree is empty or degenerate, for text rendered as graphics (badge counts, prices baked into images), or to independently verify what is on screen. Captures a fresh screenshot and returns `{device, size, items:[{text, confidence, rect}]}` — rects are device-point boxes (origin top-left), confidence-sorted, capped at ~40 KB (`truncated` drops the lowest-confidence tail; narrow with `query` or raise `min_confidence`). | `udid` (optional), `query` (case-insensitive substring), `min_confidence` (default 0.3) |
 | `ios_sim_tap_text` | OCR the CURRENT screen and tap the center of the best text match — the same exact → case-insensitive-contains → candidate-list ambiguity rules as `ios_sim_tap_element`, for text the accessibility tree cannot see (no-a11y apps, badge counts, text baked into images). On a phone the tap lands at absolute device points through WebDriverAgent; on the streamed simulator it is sent normalized through the serve-sim control (run `ios_sim_boot` first). After ~300 ms a fresh screenshot shows the effect; pass `expect_text` / `expect_gone` and the tap plus its verification become one round trip (`expected.matched`). On a REAL device every tap has real consequences — never tap an unidentified control to find out what it does. | `udid` (optional), `query` (required), `min_confidence`, `expect_text`, `expect_gone` |
+| `ios_sim_wait_for` | Wait until text appears or disappears on the screen, polling the same capture+OCR pipeline as `ios_sim_find_text` until the condition holds or the timeout expires (default 8 s, max 60 s). A timeout is a normal `matched:false` answer, never an error — one call instead of a find_text loop that costs ~1.2 s per round trip on a phone. On a match, `item` carries the OCR text, confidence, and rect in device points. | `udid` (optional), `text` (required), `mode` (`appear`/`disappear`), `timeout_ms`, `min_confidence` |
 
 ### Logs tool
 
@@ -126,8 +127,8 @@ List/feed apps aggregate each item into one accessibility cell whose label carri
 
 - **macOS with full Xcode** — not just Command Line Tools. `xcodebuild`, `xcrun simctl`, and the simulator runtimes all ship with Xcode.
 - **At least one iOS Simulator runtime** installed in Xcode.
-- **DSH ≥ 0.1.0-rc.6 with the web bundle** for the panel. Headless profiles work too: all 21 tools function normally, just without the live view.
-- **Non-macOS hosts**: the plugin loads and all 21 tools register, but every call returns an explanatory error (`iOS Simulator requires macOS with Xcode …`).
+- **DSH ≥ 0.1.0-rc.6 with the web bundle** for the panel. Headless profiles work too: all 22 tools function normally, just without the live view.
+- **Non-macOS hosts**: the plugin loads and all 22 tools register, but every call returns an explanatory error (`iOS Simulator requires macOS with Xcode …`).
 - **serve-sim** ships as an npm dependency of this plugin, so it resolves locally on real installs; the `npx -y serve-sim` fallback covers development trees (first use needs network).
 - **AXe** (optional — only the AXe-backed tools need it: `ios_sim_ui_tree` / `ios_sim_tap_element`, plus `ios_sim_ui_rows` / `ios_sim_tap_row` on a simulator): `brew install cameroncooke/axe/axe`, or let the plugin auto-download the pinned release (v1.8.0, SHA-256 verified) into `~/Library/Caches/dsh-ios/bin`. `DSH_IOS_AXE_BIN` overrides resolution; `DSH_IOS_AXE_OFFLINE=1` disables the download.
 - **Vision OCR** (optional — only `ios_sim_find_text` / `ios_sim_tap_text` need it): the plugin compiles its bundled `assets/ocr.swift` with `swiftc` on first use into `~/Library/Caches/dsh-ios/bin/ocr` (zh-Hans + en-US recognition).

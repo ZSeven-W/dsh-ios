@@ -6,11 +6,11 @@
 
 <p align="center">
   <strong><a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a> 대화 안의 실시간 인터랙티브 iOS 시뮬레이터 — USB로 연결한 실제 iPhone까지.</strong><br />
-  <sub>21개 agent 도구 &bull; 실시간 MJPEG 사이드바 패널 &bull; 시뮬레이터 &amp; USB 연결 실제 iPhone &bull; 목록/피드 행 작업 &bull; SwiftUI 미리보기 핫 리로드</sub>
+  <sub>22개 agent 도구 &bull; 실시간 MJPEG 사이드바 패널 &bull; 시뮬레이터 &amp; USB 연결 실제 iPhone &bull; 목록/피드 행 작업 &bull; SwiftUI 미리보기 핫 리로드</sub>
 </p>
 
 <p align="center">
-  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; 현재 plugin 릴리스: <code>0.1.0-rc.1</code> &middot; DSH <code>0.1.0-rc.6</code>에서 테스트됨</sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; 현재 plugin 릴리스: <code>0.1.0-rc.2</code> &middot; DSH <code>0.1.0-rc.6</code>에서 테스트됨</sub>
 </p>
 
 <p align="center">
@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; 현재 플러그인 릴리스: <code>0.1.0-rc.1</code> &middot; DSH <code>0.1.0-rc.6</code>에서 검증됨</sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; 현재 플러그인 릴리스: <code>0.1.0-rc.2</code> &middot; DSH <code>0.1.0-rc.6</code>에서 검증됨</sub>
 </p>
 
 <br />
@@ -36,7 +36,7 @@ DSH iOS 시뮬레이터는 agent에게 대화 안의 진짜 iOS 시뮬레이터�
 | --- | --- |
 | 🖥️ **대화 속 실시간 시뮬레이터** | 부팅된 기기의 serve-sim MJPEG 스트림을 서명된 `/_dsh/dsh-ios/*` 라우트로 프록시해 상시 표시되는 오른쪽 패널에 전달합니다 — 브라우저는 serve-sim의 포트에 절대 접근하지 않습니다. |
 | 📱 **USB 연결 실제 iPhone** | `ios_real_start_wda`가 연결된 휴대폰에서 WebDriverAgent를 빌드·실행하고 제어(REST) 및 화면(MJPEG) 포트를 루프백으로 터널링합니다. 이후 동일한 패널·도구·카드·상태 캡슐이 휴대폰을 조작합니다. 기기는 잠금 해제 상태여야 하며, 실제 계정에 대한 모든 탭은 plugin의 '탭 전 식별' 규칙에 의해 보호됩니다. |
-| 🛠️ **21개 agent 도구** | 기기 목록, 부팅/종료, 스크린샷, 상호작용, 빌드 및 실행, 통합 로그, AXe 기반 UI 트리 + 요소별 탭, 목록/피드 행 작업, Vision OCR 찾기/탭, SwiftUI 미리보기 핫 리로드, 프로세스, 백트레이스, 누수 분석, 앱 정보. |
+| 🛠️ **22개 agent 도구** | 기기 목록, 부팅/종료, 스크린샷, 상호작용, 빌드 및 실행, 통합 로그, AXe 기반 UI 트리 + 요소별 탭, 목록/피드 행 작업, Vision OCR 찾기/탭, SwiftUI 미리보기 핫 리로드, 프로세스, 백트레이스, 누수 분석, 앱 정보. |
 | 👆 **인터랙티브 패널** | 실시간 영상에서 탭·드래그, 홈/회전/스크린샷/새로고침 아이콘 툴바(호버 툴팁), 크기 모드(适应 · 50–125% · S/M/L), 프레임 스타일(无框 / 边框 / 真机框), 최대 960px까지 드래그 크기 조절 및 더블클릭 리셋, 가로 모드 자동 확장. |
 | 🧾 **목록 및 피드 행** | `ios_sim_ui_rows`는 심층 접근성 스냅샷을 라벨과 범용적으로 파싱된 카운터가 있는 인덱스 행으로 변환합니다. `ios_sim_tap_row`는 행 내부의 상대 좌표를 탭하고, 카운터의 기대 ±1 변화로 동작을 검증합니다 — 목록 앱이 제공할 수 있는 유일하게 신뢰할 수 있는 확인 수단입니다. |
 | 🔐 **루프백 전용 전송** | serve-sim은 전용 포트 범위에서 127.0.0.1에만 바인딩합니다. 모든 라우트는 루프백 피어, 루프백 `Host`, Fetch-Metadata/Origin 검사를 요구하며, HMAC capability는 10분 내에 만료됩니다.. |
@@ -45,7 +45,7 @@ DSH iOS 시뮬레이터는 agent에게 대화 안의 진짜 iOS 시뮬레이터�
 
 ## 도구
 
-21개 도구는 모두 모든 호스트에 등록되며 순수 JSON만 반환합니다. 시각 데이터는 `presentationMeta` + 서명된 라우트를 통해서만 UI에 도달하며, 이미지 블록으로는 절대 반환되지 않습니다. 시뮬레이터 udid는 자동으로 simctl/serve-sim을 거치고, 실기기 udid는 자동으로 WebDriverAgent를 거칩니다. macOS가 아닌 호스트(또는 serve-sim을 확인할 수 없는 경우)에서도 도구는 등록된 채로 남아 있지만, 호출하면 설명이 담긴 오류와 함께 실패합니다. 유일한 예외는 `ios_sim_preview`의 `status`로, 어느 호스트에서든 `{ running: false }`를 정직하게 보고합니다.
+22개 도구는 모두 모든 호스트에 등록되며 순수 JSON만 반환합니다. 시각 데이터는 `presentationMeta` + 서명된 라우트를 통해서만 UI에 도달하며, 이미지 블록으로는 절대 반환되지 않습니다. 시뮬레이터 udid는 자동으로 simctl/serve-sim을 거치고, 실기기 udid는 자동으로 WebDriverAgent를 거칩니다. macOS가 아닌 호스트(또는 serve-sim을 확인할 수 없는 경우)에서도 도구는 등록된 채로 남아 있지만, 호출하면 설명이 담긴 오류와 함께 실패합니다. 유일한 예외는 `ios_sim_preview`의 `status`로, 어느 호스트에서든 `{ running: false }`를 정직하게 보고합니다.
 
 ### 핵심 시뮬레이터 도구
 
@@ -83,6 +83,7 @@ DSH iOS 시뮬레이터는 agent에게 대화 안의 진짜 iOS 시뮬레이터�
 | --- | --- | --- |
 | `ios_sim_find_text` | plugin이 컴파일한 Vision 헬퍼로, 부팅된 시뮬레이터나 USB로 연결된 휴대폰의 **현재** 화면을 OCR합니다(정확한 인식, zh-Hans + en-US, 첫 사용 시 `swiftc`로 `~/Library/Caches/dsh-ios/bin/ocr`에 컴파일). 접근성 트리가 비어 있거나 퇴화한 경우, 그래픽으로 렌더링된 텍스트(배지 숫자, 이미지에 박힌 가격)에, 또는 화면의 내용을 독립적으로 확인할 때 사용하세요. 새 스크린샷을 캡처하고 `{device, size, items:[{text, confidence, rect}]}`를 반환합니다 — rect는 기기 포인트 단위 박스(원점은 왼쪽 위)이며 신뢰도순으로 정렬되고 약 40KB로 제한됩니다(`truncated`는 신뢰도가 가장 낮은 꼬리를 버림; `query`로 좁히거나 `min_confidence`를 올리세요). | `udid` (선택), `query` (대소문자 무시 부분 문자열), `min_confidence` (기본값 0.3) |
 | `ios_sim_tap_text` | **현재** 화면을 OCR하고 가장 잘 일치하는 텍스트의 중앙을 탭합니다 — `ios_sim_tap_element`와 동일한 '정확히 일치 → 대소문자 무시 포함 → 후보 목록 모호성' 규칙을 따르며, 접근성 트리가 볼 수 없는 텍스트(a11y가 없는 앱, 배지 숫자, 이미지에 박힌 텍스트)를 대상으로 합니다. 휴대폰에서는 WebDriverAgent를 통해 절대 기기 포인트에 탭이 착지하고, 스트리밍 중인 시뮬레이터에서는 serve-sim 제어를 통해 정규화된 좌표로 전송됩니다(먼저 `ios_sim_boot` 실행). 약 300ms 후 새 스크린샷으로 결과를 보여 줍니다. `expect_text` / `expect_gone`을 전달하면 탭과 검증이 한 번의 왕복으로 합쳐집니다(`expected.matched`). 실제 기기에서는 모든 탭에 실제 결과가 따릅니다 — 미식별 컨트롤이 무엇을 하는지 알아내려고 탭하는 일은 절대 하지 마세요. | `udid` (선택), `query` (필수), `min_confidence`, `expect_text`, `expect_gone` |
+| `ios_sim_wait_for` | 텍스트가 화면에 나타나거나 사라질 때까지 대기합니다. `ios_sim_find_text` 와 같은 캡처+OCR 파이프라인을 조건이 성립하거나 타임아웃(기본 8초, 최대 60초)될 때까지 폴링합니다. 타임아웃은 정상적인 `matched:false` 결과이며 오류가 아닙니다 — 실기기에서 한 번에 약 1.2초가 드는 find_text 수동 루프를 한 번의 호출로 대체합니다. 일치 시 `item` 에 OCR 텍스트, 신뢰도, 디바이스 포인트 좌표가 담깁니다. | `udid`(선택), `text`(필수), `mode`(`appear`/`disappear`), `timeout_ms`, `min_confidence` |
 
 ### 로그 도구
 
@@ -125,8 +126,8 @@ DSH iOS 시뮬레이터는 agent에게 대화 안의 진짜 iOS 시뮬레이터�
 
 - **전체 Xcode가 설치된 macOS** — Command Line Tools만으로는 부족합니다. `xcodebuild`, `xcrun simctl`, 시뮬레이터 런타임은 모두 Xcode와 함께 제공됩니다.
 - **Xcode에 iOS 시뮬레이터 런타임이 하나 이상** 설치되어 있어야 합니다.
-- 패널에는 **웹 번들이 포함된 DSH ≥ 0.1.0-rc.6**이 필요합니다. 헤드리스 프로필에서도 사용할 수 있습니다. 21개 도구가 모두 정상적으로 동작하며, 실시간 화면만 제공되지 않습니다.
-- **macOS가 아닌 호스트**: plugin은 로드되고 21개 도구가 모두 등록되지만, 모든 호출이 설명이 담긴 오류를 반환합니다(`iOS Simulator requires macOS with Xcode …`).
+- 패널에는 **웹 번들이 포함된 DSH ≥ 0.1.0-rc.6**이 필요합니다. 헤드리스 프로필에서도 사용할 수 있습니다. 22개 도구가 모두 정상적으로 동작하며, 실시간 화면만 제공되지 않습니다.
+- **macOS가 아닌 호스트**: plugin은 로드되고 22개 도구가 모두 등록되지만, 모든 호출이 설명이 담긴 오류를 반환합니다(`iOS Simulator requires macOS with Xcode …`).
 - **serve-sim**은 이 plugin의 npm 의존성으로 함께 배포되므로 실제 설치에서는 로컬로 해석됩니다. 개발 트리에서는 `npx -y serve-sim` 폴백이 사용됩니다(첫 사용 시 네트워크 필요).
 - **AXe** (선택 — AXe 기반 도구에만 필요: `ios_sim_ui_tree` / `ios_sim_tap_element`, 그리고 시뮬레이터에서의 `ios_sim_ui_rows` / `ios_sim_tap_row`): `brew install cameroncooke/axe/axe`로 설치하거나, plugin이 고정 릴리스(v1.8.0, SHA-256 검증)를 `~/Library/Caches/dsh-ios/bin`에 자동 다운로드하게 하세요. `DSH_IOS_AXE_BIN`으로 해석 경로를 재정의할 수 있고, `DSH_IOS_AXE_OFFLINE=1`은 다운로드를 비활성화합니다.
 - **Vision OCR** (선택 — `ios_sim_find_text` / `ios_sim_tap_text`에만 필요): plugin이 첫 사용 시 번들된 `assets/ocr.swift`를 `swiftc`로 `~/Library/Caches/dsh-ios/bin/ocr`에 컴파일합니다(zh-Hans + en-US 인식).

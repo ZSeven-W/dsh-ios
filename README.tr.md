@@ -6,11 +6,11 @@
 
 <p align="center">
   <strong><a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a> sohbetinin içinde canlı, etkileşimli bir iOS simülatörü — ayrıca USB üzerinden gerçek iPhone'unuz.</strong><br />
-  <sub>21 ajan aracı &bull; canlı MJPEG kenar çubuğu paneli &bull; simülatör &amp; USB üzerinden gerçek iPhone &bull; liste/akış satırı eylemleri &bull; SwiftUI önizleme sıcak yeniden yükleme</sub>
+  <sub>22 ajan aracı &bull; canlı MJPEG kenar çubuğu paneli &bull; simülatör &amp; USB üzerinden gerçek iPhone &bull; liste/akış satırı eylemleri &bull; SwiftUI önizleme sıcak yeniden yükleme</sub>
 </p>
 
 <p align="center">
-  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Güncel eklenti sürümü: <code>0.1.0-rc.1</code> &middot; DSH <code>0.1.0-rc.6</code> ile test edildi</sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Güncel eklenti sürümü: <code>0.1.0-rc.2</code> &middot; DSH <code>0.1.0-rc.6</code> ile test edildi</sub>
 </p>
 
 <p align="center">
@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Geçerli eklenti sürümü: <code>0.1.0-rc.1</code> &middot; DSH <code>0.1.0-rc.6</code> ile test edildi</sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Geçerli eklenti sürümü: <code>0.1.0-rc.2</code> &middot; DSH <code>0.1.0-rc.6</code> ile test edildi</sub>
 </p>
 
 <br />
@@ -36,7 +36,7 @@ DSH iOS Simülatörü ajana sohbetin içinde gerçek bir iOS simülatörü verir
 | --- | --- |
 | 🖥️ **Sohbetin içinde canlı simülatör** | Başlatılmış cihazın serve-sim MJPEG akışı, imzalı `/_dsh/dsh-ios/*` rotaları üzerinden kalıcı sağ panele vekillenir — tarayıcı serve-sim'in bağlantı noktasına asla dokunmaz. |
 | 📱 **USB üzerinden gerçek iPhone** | `ios_real_start_wda` bağlı telefonda WebDriverAgent'ı derleyip başlatır ve kontrol (REST) ile ekran (MJPEG) bağlantı noktalarını loopback üzerinden tüneller; ardından aynı panel, araçlar, kartlar ve durum kapsülü telefonu yönetir. Cihazın kilidi açık olmalıdır ve gerçek hesaptaki her dokunuş eklentinin “önce tanı, sonra dokun” kurallarıyla korunur. |
-| 🛠️ **21 ajan aracı** | Cihazlar, başlatma/kapatma, ekran görüntüsü, etkileşim, derleme ve çalıştırma, birleşik günlükler, AXe destekli UI ağacı ve öğeye dokunma, liste/akış satırı eylemleri, Vision OCR bul/dokun, SwiftUI önizleme sıcak yeniden yükleme, süreçler, backtrace, bellek sızıntıları, uygulama bilgisi. |
+| 🛠️ **22 ajan aracı** | Cihazlar, başlatma/kapatma, ekran görüntüsü, etkileşim, derleme ve çalıştırma, birleşik günlükler, AXe destekli UI ağacı ve öğeye dokunma, liste/akış satırı eylemleri, Vision OCR bul/dokun, SwiftUI önizleme sıcak yeniden yükleme, süreçler, backtrace, bellek sızıntıları, uygulama bilgisi. |
 | 👆 **Etkileşimli panel** | Canlı videoda dokunun ve sürükleyin; üzerine gelince araç ipuçlu Home / döndür / ekran görüntüsü / yenile simge çubuğu; boyut modları (适应 · 50–125% · S/M/L); çerçeve stilleri (无框 / 边框 / 真机框); çift tıklamayla sıfırlamalı, 960 px'e kadar sürükleyerek yeniden boyutlandırma; yatayda otomatik genişleme. |
 | 🧾 **Liste ve akış satırları** | `ios_sim_ui_rows` derin erişilebilirlik anlık görüntülerini etiketli ve genel olarak ayrıştırılmış sayaçlı, dizinli satırlara dönüştürür; `ios_sim_tap_row` satırın içinde göreli koordinatlarda dokunur ve eylemi sayacın beklenen ±1 değişimiyle doğrular — bir liste uygulamasının sunduğu tek güvenilir onay budur. |
 | 🔐 **Yalnızca loopback taşıma** | serve-sim ayrılmış bir bağlantı noktası aralığında 127.0.0.1'e bağlanır; her rota bir loopback eşi, loopback `Host` ve Fetch-Metadata/Origin denetimleri ister; HMAC yeteneklerinin süresi 10 dakika içinde dolar.. |
@@ -45,7 +45,7 @@ DSH iOS Simülatörü ajana sohbetin içinde gerçek bir iOS simülatörü verir
 
 ## Araçlar
 
-21 aracın tamamı her ana makinede kayıtlıdır ve yalnızca düz JSON döndürür — görsel baytlar arayüze yalnızca `presentationMeta` + imzalı rotalar üzerinden ulaşır, asla görüntü bloğu olarak dönmez. Simülatör udid'leri simctl/serve-sim üzerinden, fiziksel cihaz udid'leri otomatik olarak WebDriverAgent üzerinden yönlenir. macOS olmayan ana makinelerde (veya serve-sim çözümlenemediğinde) araçlar kayıtlı kalır ama açıklayıcı bir hatayla başarısız olur; tek istisna `ios_sim_preview` `status`'udur ve her ana makinede dürüstçe `{ running: false }` bildirir.
+22 aracın tamamı her ana makinede kayıtlıdır ve yalnızca düz JSON döndürür — görsel baytlar arayüze yalnızca `presentationMeta` + imzalı rotalar üzerinden ulaşır, asla görüntü bloğu olarak dönmez. Simülatör udid'leri simctl/serve-sim üzerinden, fiziksel cihaz udid'leri otomatik olarak WebDriverAgent üzerinden yönlenir. macOS olmayan ana makinelerde (veya serve-sim çözümlenemediğinde) araçlar kayıtlı kalır ama açıklayıcı bir hatayla başarısız olur; tek istisna `ios_sim_preview` `status`'udur ve her ana makinede dürüstçe `{ running: false }` bildirir.
 
 ### Temel simülatör araçları
 
@@ -83,6 +83,7 @@ Liste/akış uygulamaları her öğeyi, etiketi tüm özeti ve tüm sayaçları 
 | --- | --- | --- |
 | `ios_sim_find_text` | Başlatılmış bir simülatörün veya USB telefonun GEÇERLİ ekranını, eklentinin derlediği Vision yardımcısıyla OCR'lar (isabetli tanıma, zh-Hans + en-US, ilk kullanımda `swiftc` ile `~/Library/Caches/dsh-ios/bin/ocr` içine derlenir). Erişilebilirlik ağacı boş veya bozulmuşken, grafik olarak çizilen metinler için (rozet sayıları, görsellere gömülü fiyatlar) veya ekrandakini bağımsızca doğrulamak için kullanın. Taze bir ekran görüntüsü alıp `{device, size, items:[{text, confidence, rect}]}` döndürür — rect'ler cihaz noktası kutularıdır (başlangıç sol üstte), güvene göre sıralı, çıktı ~40 KB ile sınırlı (`truncated` en düşük güvenli kuyruğu düşürür; `query` ile daraltın veya `min_confidence`'ı yükseltin). | `udid` (isteğe bağlı), `query` (büyük/küçük harfe duyarsız alt dize), `min_confidence` (varsayılan 0.3) |
 | `ios_sim_tap_text` | GEÇERLİ ekranı OCR'lar ve en iyi metin eşleşmesinin merkezine dokunur — `ios_sim_tap_element` ile aynı tam → büyük/küçük harfe duyarsız içerme → aday listesi belirsizlik kuralları, erişilebilirlik ağacının göremediği metinler için (a11y'siz uygulamalar, rozet sayıları, görsellere gömülü metinler). Telefonda dokunuş WebDriverAgent üzerinden mutlak cihaz noktalarına iner; akıştaki simülatörde serve-sim kontrolü üzerinden normalleştirilmiş olarak gönderilir (önce `ios_sim_boot` çalıştırın). ~300 ms sonra taze ekran görüntüsü etkiyi gösterir; `expect_text` / `expect_gone` verirseniz dokunuş ve doğrulaması tek gidiş-dönüş olur (`expected.matched`). GERÇEK cihazda her dokunuşun gerçek sonuçları vardır — ne yaptığını öğrenmek için tanınmayan bir denetime asla dokunmayın. | `udid` (isteğe bağlı), `query` (zorunlu), `min_confidence`, `expect_text`, `expect_gone` |
+| `ios_sim_wait_for` | Bir metnin ekranda belirmesini veya kaybolmasını bekler; koşul sağlanana ya da süre dolana kadar (varsayılan 8 sn, en çok 60 sn) `ios_sim_find_text` ile aynı yakalama+OCR hattını yoklar. Zaman aşımı normal bir `matched:false` yanıtıdır, asla hata değildir — gerçek iPhone’da tur başına ~1,2 sn süren elle find_text döngüsü yerine tek bir çağrı. Eşleşmede `item`, OCR metnini, güven değerini ve cihaz noktalarındaki dikdörtgeni taşır. | `udid` (isteğe bağlı), `text` (zorunlu), `mode` (`appear`/`disappear`), `timeout_ms`, `min_confidence` |
 
 ### Günlük aracı
 
@@ -125,8 +126,8 @@ Liste/akış uygulamaları her öğeyi, etiketi tüm özeti ve tüm sayaçları 
 
 - **Tam Xcode'lu macOS** — yalnızca Command Line Tools yetmez. `xcodebuild`, `xcrun simctl` ve simülatör çalışma zamanlarının tümü Xcode ile gelir.
 - **Xcode'da en az bir iOS simülatörü çalışma zamanı** kurulu olmalı.
-- **Panel için DSH ≥ 0.1.0-rc.6 ve web paketi**. Başsız (headless) profiller de çalışır: 21 aracın tümü normal çalışır, yalnızca canlı görünüm olmaz.
-- **macOS olmayan ana makineler**: eklenti yüklenir ve 21 aracın tümü kaydolur, ama her çağrı açıklayıcı bir hata döndürür (`iOS Simulator requires macOS with Xcode …`).
+- **Panel için DSH ≥ 0.1.0-rc.6 ve web paketi**. Başsız (headless) profiller de çalışır: 22 aracın tümü normal çalışır, yalnızca canlı görünüm olmaz.
+- **macOS olmayan ana makineler**: eklenti yüklenir ve 22 aracın tümü kaydolur, ama her çağrı açıklayıcı bir hata döndürür (`iOS Simulator requires macOS with Xcode …`).
 - **serve-sim** bu eklentinin npm bağımlılığı olarak gelir, bu yüzden gerçek kurulumlarda yerel olarak çözümlenir; `npx -y serve-sim` yedeği geliştirme ağaçlarını kapsar (ilk kullanım ağ gerektirir).
 - **AXe** (isteğe bağlı — yalnızca AXe destekli araçlar gerektirir: `ios_sim_ui_tree` / `ios_sim_tap_element`, ayrıca simülatörde `ios_sim_ui_rows` / `ios_sim_tap_row`): `brew install cameroncooke/axe/axe`, veya eklentinin sabitlenmiş sürümü (v1.8.0, SHA-256 doğrulamalı) `~/Library/Caches/dsh-ios/bin` içine otomatik indirmesine izin verin. `DSH_IOS_AXE_BIN` çözümlemeyi geçersiz kılar; `DSH_IOS_AXE_OFFLINE=1` indirmeyi devre dışı bırakır.
 - **Vision OCR** (isteğe bağlı — yalnızca `ios_sim_find_text` / `ios_sim_tap_text` gerektirir): eklenti ilk kullanımda paketli `assets/ocr.swift` dosyasını `swiftc` ile `~/Library/Caches/dsh-ios/bin/ocr` içine derler (zh-Hans + en-US tanıma).

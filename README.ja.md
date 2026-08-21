@@ -6,11 +6,11 @@
 
 <p align="center">
   <strong><a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a> の会話の中に、ライブで操作可能な iOS シミュレータを組み込む——USB 接続の実機 iPhone にも対応。</strong><br />
-  <sub>21 個のエージェントツール &bull; ライブ MJPEG サイドバーパネル &bull; シミュレータと USB 実機 &bull; リスト/フィードの行操作 &bull; SwiftUI プレビューのホットリロード</sub>
+  <sub>22 個のエージェントツール &bull; ライブ MJPEG サイドバーパネル &bull; シミュレータと USB 実機 &bull; リスト/フィードの行操作 &bull; SwiftUI プレビューのホットリロード</sub>
 </p>
 
 <p align="center">
-  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; 現在のプラグインリリース: <code>0.1.0-rc.1</code> &middot; DSH <code>0.1.0-rc.6</code> で動作確認済み</sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; 現在のプラグインリリース: <code>0.1.0-rc.2</code> &middot; DSH <code>0.1.0-rc.6</code> で動作確認済み</sub>
 </p>
 
 <p align="center">
@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; 現在のプラグインリリース: <code>0.1.0-rc.1</code> &middot; DSH <code>0.1.0-rc.6</code> で検証済み</sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; 現在のプラグインリリース: <code>0.1.0-rc.2</code> &middot; DSH <code>0.1.0-rc.6</code> で検証済み</sub>
 </p>
 
 <br />
@@ -36,7 +36,7 @@ DSH iOS シミュレータは、エージェントに会話の中の本物の iO
 | --- | --- |
 | 🖥️ **会話の中のライブシミュレータ** | 起動中のデバイスの serve-sim MJPEG ストリームを、署名付きの `/_dsh/dsh-ios/*` ルート経由で常駐の右側パネルにプロキシします——ブラウザが serve-sim のポートに直接触れることはありません。 |
 | 📱 **USB 接続の実機 iPhone** | `ios_real_start_wda` は接続された電話機上で WebDriverAgent をビルド・起動し、制御（REST）と画面（MJPEG）のポートをループバック経由でトンネリングします。同じパネル・ツール・カード・ステータスカプセルでそのまま実機を操作できます。デバイスはロック解除されている必要があり、実機アカウントへのタップはすべてプラグインの「識別してからタップ」ルールでガードされます。 |
-| 🛠️ **21 個のエージェントツール** | デバイス一覧、起動/シャットダウン、スクリーンショット、操作、ビルド＆実行、統合ログ、AXe ベースの UI ツリーと要素タップ、リスト/フィードの行操作、Vision OCR の検索/タップ、SwiftUI プレビューのホットリロード、プロセス、バックトレース、リーク、アプリ情報。 |
+| 🛠️ **22 個のエージェントツール** | デバイス一覧、起動/シャットダウン、スクリーンショット、操作、ビルド＆実行、統合ログ、AXe ベースの UI ツリーと要素タップ、リスト/フィードの行操作、Vision OCR の検索/タップ、SwiftUI プレビューのホットリロード、プロセス、バックトレース、リーク、アプリ情報。 |
 | 👆 **操作可能なパネル** | ライブ映像の上でタップ＆ドラッグ。ホバーツールチップ付きの Home / 回転 / スクリーンショット / 更新アイコンツールバー、サイズモード（适应 · 50–125% · S/M/L）、フレームスタイル（无框 / 边框 / 真机框）、最大 960 px のドラッグリサイズとダブルクリックでのリセット、横向き時の自動拡幅。 |
 | 🧾 **リストとフィードの行** | `ios_sim_ui_rows` は深いアクセシビリティスナップショットを、ラベルと汎用的にパースされたカウンター付きのインデックス行に変換します。`ios_sim_tap_row` は行内の相対座標をタップし、カウンターが期待どおり ±1 変化したことで操作を検証します——リスト型アプリで唯一信頼できる確認手段です。 |
 | 🔐 **ループバック限定の転送** | serve-sim は専用ポート範囲の 127.0.0.1 にのみバインドします。全ルートでループバックピア、ループバック `Host`、Fetch-Metadata/Origin チェックが必須で、HMAC ケーパビリティは 10 分で失効します。。 |
@@ -45,7 +45,7 @@ DSH iOS シミュレータは、エージェントに会話の中の本物の iO
 
 ## ツール
 
-21 個のツールはすべてどのホストでも登録され、プレーンな JSON のみを返します——視覚データは `presentationMeta` + 署名付きルートを通してのみ UI に届き、画像ブロックとして返ることは決してありません。シミュレータの udid は simctl/serve-sim を経由し、実機の udid は自動的に WebDriverAgent を経由します。非 macOS ホスト（または serve-sim が解決できない環境）でもツールは登録されたままですが、呼び出すと説明付きのエラーを返します。唯一の例外は `ios_sim_preview` の `status` で、どのホストでも正直に `{ running: false }` を返します。
+22 個のツールはすべてどのホストでも登録され、プレーンな JSON のみを返します——視覚データは `presentationMeta` + 署名付きルートを通してのみ UI に届き、画像ブロックとして返ることは決してありません。シミュレータの udid は simctl/serve-sim を経由し、実機の udid は自動的に WebDriverAgent を経由します。非 macOS ホスト（または serve-sim が解決できない環境）でもツールは登録されたままですが、呼び出すと説明付きのエラーを返します。唯一の例外は `ios_sim_preview` の `status` で、どのホストでも正直に `{ running: false }` を返します。
 
 ### コアシミュレータツール
 
@@ -83,6 +83,7 @@ DSH iOS シミュレータは、エージェントに会話の中の本物の iO
 | --- | --- | --- |
 | `ios_sim_find_text` | 起動中のシミュレータまたは USB 実機の現在の画面を、プラグインがコンパイルした Vision ヘルパーで OCR します（高精度認識、zh-Hans + en-US。初回使用時に `swiftc` で `~/Library/Caches/dsh-ios/bin/ocr` にコンパイル）。アクセシビリティツリーが空または縮退している場合、テキストが画像として描画されている場合（バッジの数字、画像に焼き込まれた価格）、画面内容を独立に検証したい場合に使います。新しいスクリーンショットを撮り、`{device, size, items:[{text, confidence, rect}]}` を返します——rect はデバイスポイント単位のボックス（原点は左上）で、信頼度順にソートされ、出力上限は約 40 KB です（`truncated` は信頼度最低の末尾を落としたことを示します。`query` で絞るか `min_confidence` を上げてください）。 | `udid`（省略可）、`query`（大文字小文字を区別しない部分一致）、`min_confidence`（デフォルト 0.3） |
 | `ios_sim_tap_text` | 現在の画面を OCR し、最良のテキスト一致の中心をタップします——`ios_sim_tap_element` と同じ「完全一致 → 大文字小文字を区別しない包含 → 候補リストで曖昧さを報告」ルールを、アクセシビリティツリーから見えないテキスト（a11y のないアプリ、バッジの数字、画像に焼き込まれたテキスト）に適用します。実機では WebDriverAgent 経由でデバイス絶対座標にタップが着地します。ストリーム配信中のシミュレータでは serve-sim 制御経由で正規化座標として送信されます（先に `ios_sim_boot` を実行）。約 300 ms 後に新しいスクリーンショットで結果を示します。`expect_text` / `expect_gone` を渡すと、タップと検証が 1 回のラウンドトリップになります（`expected.matched`）。実機ではすべてのタップに現実の結果が伴います——正体不明のコントロールを、動作を確かめるためにタップしてはいけません。 | `udid`（省略可）、`query`（必須）、`min_confidence`、`expect_text`、`expect_gone` |
+| `ios_sim_wait_for` | テキストが画面に現れる／消えるまで待機します。`ios_sim_find_text` と同じキャプチャ+OCR パイプラインを条件成立かタイムアウト（既定 8 秒、最大 60 秒）までポーリングします。タイムアウトは正常な `matched:false` の結果であり、エラーにはなりません — find_text を手動でループする（実機では 1 往復あたり約 1.2 秒）代わりの 1 回の呼び出しです。一致時は `item` に OCR テキスト・信頼度・デバイスポイントの矩形が入ります。 | `udid`（省略可）、`text`（必須）、`mode`（`appear`/`disappear`）、`timeout_ms`、`min_confidence` |
 
 ### ログツール
 
@@ -125,8 +126,8 @@ DSH iOS シミュレータは、エージェントに会話の中の本物の iO
 
 - **フル Xcode が入った macOS**——Command Line Tools だけでは不十分です。`xcodebuild`、`xcrun simctl`、シミュレータランタイムはすべて Xcode に同梱されています。
 - **Xcode に iOS シミュレータランタイムが少なくとも 1 つ**インストールされていること。
-- **パネルには DSH ≥ 0.1.0-rc.6 と Web バンドル**が必要です。ヘッドレスプロファイルでも動作します。21 個のツールはすべて通常どおり機能し、ライブ映像だけがありません。
-- **非 macOS ホスト**: プラグインはロードされ 21 個のツールも登録されますが、呼び出しはすべて説明付きのエラーを返します（`iOS Simulator requires macOS with Xcode …`）。
+- **パネルには DSH ≥ 0.1.0-rc.6 と Web バンドル**が必要です。ヘッドレスプロファイルでも動作します。22 個のツールはすべて通常どおり機能し、ライブ映像だけがありません。
+- **非 macOS ホスト**: プラグインはロードされ 22 個のツールも登録されますが、呼び出しはすべて説明付きのエラーを返します（`iOS Simulator requires macOS with Xcode …`）。
 - **serve-sim** はこのプラグインの npm 依存関係として同梱されるため、実際のインストールではローカルで解決されます。開発ツリーでは `npx -y serve-sim` フォールバックがカバーします（初回使用はネットワークが必要）。
 - **AXe**（省略可——AXe ベースのツールだけが必要とします: `ios_sim_ui_tree` / `ios_sim_tap_element`、およびシミュレータ上の `ios_sim_ui_rows` / `ios_sim_tap_row`）: `brew install cameroncooke/axe/axe`、またはプラグインに固定リリース（v1.8.0、SHA-256 検証済み）を `~/Library/Caches/dsh-ios/bin` へ自動ダウンロードさせます。`DSH_IOS_AXE_BIN` で解決結果を上書きできます。`DSH_IOS_AXE_OFFLINE=1` でダウンロードを無効化できます。
 - **Vision OCR**（省略可——`ios_sim_find_text` / `ios_sim_tap_text` だけが必要とします）: プラグインは初回使用時に同梱の `assets/ocr.swift` を `swiftc` で `~/Library/Caches/dsh-ios/bin/ocr` にコンパイルします（zh-Hans + en-US 認識）。

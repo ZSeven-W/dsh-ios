@@ -6,11 +6,11 @@
 
 <p align="center">
   <strong>Un simulador de iOS en vivo e interactivo dentro de una conversación de <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a>, más tu iPhone real por USB.</strong><br />
-  <sub>21 herramientas del agente &bull; panel lateral MJPEG en vivo &bull; simulador &amp; iPhone real por USB &bull; acciones sobre filas de listas/feeds &bull; recarga en caliente de vistas previas SwiftUI</sub>
+  <sub>22 herramientas del agente &bull; panel lateral MJPEG en vivo &bull; simulador &amp; iPhone real por USB &bull; acciones sobre filas de listas/feeds &bull; recarga en caliente de vistas previas SwiftUI</sub>
 </p>
 
 <p align="center">
-  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Versión actual del plugin: <code>0.1.0-rc.1</code> &middot; Probado con DSH <code>0.1.0-rc.6</code></sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Versión actual del plugin: <code>0.1.0-rc.2</code> &middot; Probado con DSH <code>0.1.0-rc.6</code></sub>
 </p>
 
 <p align="center">
@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Versión actual del plugin: <code>0.1.0-rc.1</code> &middot; Probado con DSH <code>0.1.0-rc.6</code></sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Versión actual del plugin: <code>0.1.0-rc.2</code> &middot; Probado con DSH <code>0.1.0-rc.6</code></sub>
 </p>
 
 <br />
@@ -36,7 +36,7 @@ DSH Simulador de iOS le da al agente un simulador de iOS real dentro de la conve
 | --- | --- |
 | 🖥️ **Simulador en vivo en la conversación** | Una transmisión MJPEG de serve-sim del dispositivo arrancado, proxyada a través de rutas firmadas `/_dsh/dsh-ios/*` hacia un panel derecho persistente: el navegador nunca toca el puerto de serve-sim. |
 | 📱 **iPhone real por USB** | `ios_real_start_wda` compila y lanza WebDriverAgent en un teléfono conectado y tuneliza sus puertos de control (REST) y pantalla (MJPEG) por loopback; el mismo panel, herramientas, tarjetas y cápsula de estado controlan entonces el teléfono. El dispositivo debe estar desbloqueado, y cada toque en cuentas reales está controlado por las reglas de «identificar antes de tocar» del plugin. |
-| 🛠️ **21 herramientas del agente** | Dispositivos, arranque/apagado, captura de pantalla, interacción, compilar y ejecutar, registros unificados, árbol de UI con AXe y toque por elemento, acciones sobre filas de listas/feeds, búsqueda/toque de texto con Vision OCR, recarga en caliente de vistas previas SwiftUI, procesos, backtrace, fugas, información de apps. |
+| 🛠️ **22 herramientas del agente** | Dispositivos, arranque/apagado, captura de pantalla, interacción, compilar y ejecutar, registros unificados, árbol de UI con AXe y toque por elemento, acciones sobre filas de listas/feeds, búsqueda/toque de texto con Vision OCR, recarga en caliente de vistas previas SwiftUI, procesos, backtrace, fugas, información de apps. |
 | 👆 **Panel interactivo** | Toca y arrastra sobre el vídeo en vivo; barra de iconos de Inicio / rotar / captura / actualizar con tooltips al pasar el ratón; modos de tamaño (适应 · 50–125% · S/M/L); estilos de marco (无框 / 边框 / 真机框); redimensionado arrastrando hasta 960 px con doble clic para restablecer; ampliación automática en horizontal. |
 | 🧾 **Filas de listas y feeds** | `ios_sim_ui_rows` convierte instantáneas profundas de accesibilidad en filas indexadas con etiquetas y contadores analizados de forma genérica; `ios_sim_tap_row` toca dentro de una fila en coordenadas relativas y verifica la acción mediante el cambio esperado de ±1 del contador: la única confirmación fiable que ofrece una app de listas. |
 | 🔐 **Transporte solo por loopback** | serve-sim se enlaza a 127.0.0.1 en un rango de puertos dedicado; cada ruta exige un par loopback, un `Host` loopback y comprobaciones Fetch-Metadata/Origin; las capacidades HMAC caducan en 10 minutos.. |
@@ -45,7 +45,7 @@ DSH Simulador de iOS le da al agente un simulador de iOS real dentro de la conve
 
 ## Herramientas
 
-Las 21 herramientas se registran en todos los hosts y devuelven JSON plano: los bytes visuales solo llegan a la UI mediante `presentationMeta` + rutas firmadas, nunca como bloques de imagen. Los udid de simulador pasan por simctl/serve-sim; los udid de dispositivos físicos pasan automáticamente por WebDriverAgent. En hosts que no son macOS (o cuando serve-sim no se puede resolver) las herramientas siguen registradas, pero fallan con un error explicativo; la única excepción es `status` de `ios_sim_preview`, que informa con honestidad `{ running: false }` en cualquier host.
+Las 22 herramientas se registran en todos los hosts y devuelven JSON plano: los bytes visuales solo llegan a la UI mediante `presentationMeta` + rutas firmadas, nunca como bloques de imagen. Los udid de simulador pasan por simctl/serve-sim; los udid de dispositivos físicos pasan automáticamente por WebDriverAgent. En hosts que no son macOS (o cuando serve-sim no se puede resolver) las herramientas siguen registradas, pero fallan con un error explicativo; la única excepción es `status` de `ios_sim_preview`, que informa con honestidad `{ running: false }` en cualquier host.
 
 ### Herramientas principales del simulador
 
@@ -83,6 +83,7 @@ Las apps de listas/feeds agregan cada elemento en una celda de accesibilidad cuy
 | --- | --- | --- |
 | `ios_sim_find_text` | Hace OCR de la pantalla ACTUAL de un simulador arrancado o un teléfono por USB con el asistente Vision compilado por el plugin (reconocimiento preciso, zh-Hans + en-US, compilado con `swiftc` en el primer uso en `~/Library/Caches/dsh-ios/bin/ocr`). Úsalo cuando el árbol de accesibilidad esté vacío o degenerado, para texto renderizado como gráficos (contadores de insignias, precios incrustados en imágenes) o para verificar de forma independiente qué hay en pantalla. Captura una instantánea nueva y devuelve `{device, size, items:[{text, confidence, rect}]}`: los rect son cajas en puntos del dispositivo (origen arriba a la izquierda), ordenados por confianza, limitados a ~40 KB (`truncated` descarta la cola de menor confianza; acota con `query` o sube `min_confidence`). | `udid` (opcional), `query` (subcadena sin distinguir mayúsculas), `min_confidence` (predeterminado 0.3) |
 | `ios_sim_tap_text` | Hace OCR de la pantalla ACTUAL y toca el centro de la mejor coincidencia de texto: las mismas reglas de exacto → contiene sin distinguir mayúsculas → lista de candidatos ambiguos que `ios_sim_tap_element`, para texto que el árbol de accesibilidad no ve (apps sin a11y, contadores de insignias, texto incrustado en imágenes). En un teléfono el toque aterriza en puntos absolutos del dispositivo mediante WebDriverAgent; en el simulador transmitido se envía normalizado mediante el control de serve-sim (ejecuta `ios_sim_boot` primero). Después de ~300 ms una captura nueva muestra el efecto; pasa `expect_text` / `expect_gone` y el toque más su verificación se convierten en un solo viaje de ida y vuelta (`expected.matched`). En un dispositivo REAL cada toque tiene consecuencias reales: nunca toques un control no identificado para averiguar qué hace. | `udid` (opcional), `query` (obligatorio), `min_confidence`, `expect_text`, `expect_gone` |
+| `ios_sim_wait_for` | Espera a que un texto aparezca o desaparezca en pantalla, sondeando el mismo pipeline de captura+OCR que `ios_sim_find_text` hasta que la condición se cumpla o venza el tiempo (8 s por defecto, máx. 60 s). Un timeout es una respuesta normal `matched:false`, nunca un error — una sola llamada en vez de un bucle de find_text (~1,2 s por vuelta en un iPhone). Al coincidir, `item` lleva el texto OCR, la confianza y el rectángulo en puntos. | `udid` (opcional), `text` (requerido), `mode` (`appear`/`disappear`), `timeout_ms`, `min_confidence` |
 
 ### Herramienta de registros
 
@@ -125,8 +126,8 @@ Las apps de listas/feeds agregan cada elemento en una celda de accesibilidad cuy
 
 - **macOS con Xcode completo**: no solo Command Line Tools. `xcodebuild`, `xcrun simctl` y los runtimes del simulador vienen con Xcode.
 - **Al menos un runtime de simulador de iOS** instalado en Xcode.
-- **DSH ≥ 0.1.0-rc.6 con el bundle web** para el panel. Los perfiles headless también funcionan: las 21 herramientas operan con normalidad, solo sin la vista en vivo.
-- **Hosts que no son macOS**: el plugin carga y las 21 herramientas se registran, pero cada llamada devuelve un error explicativo (`iOS Simulator requires macOS with Xcode …`).
+- **DSH ≥ 0.1.0-rc.6 con el bundle web** para el panel. Los perfiles headless también funcionan: las 22 herramientas operan con normalidad, solo sin la vista en vivo.
+- **Hosts que no son macOS**: el plugin carga y las 22 herramientas se registran, pero cada llamada devuelve un error explicativo (`iOS Simulator requires macOS with Xcode …`).
 - **serve-sim** viene como dependencia npm de este plugin, así que se resuelve localmente en instalaciones reales; la alternativa `npx -y serve-sim` cubre los árboles de desarrollo (el primer uso necesita red).
 - **AXe** (opcional: solo lo necesitan las herramientas con AXe: `ios_sim_ui_tree` / `ios_sim_tap_element`, más `ios_sim_ui_rows` / `ios_sim_tap_row` en un simulador): `brew install cameroncooke/axe/axe`, o deja que el plugin descargue automáticamente la versión fijada (v1.8.0, verificada con SHA-256) en `~/Library/Caches/dsh-ios/bin`. `DSH_IOS_AXE_BIN` anula la resolución; `DSH_IOS_AXE_OFFLINE=1` desactiva la descarga.
 - **Vision OCR** (opcional: solo lo necesitan `ios_sim_find_text` / `ios_sim_tap_text`): el plugin compila su `assets/ocr.swift` incluido con `swiftc` en el primer uso en `~/Library/Caches/dsh-ios/bin/ocr` (reconocimiento zh-Hans + en-US).

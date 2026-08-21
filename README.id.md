@@ -6,11 +6,11 @@
 
 <p align="center">
   <strong>Simulator iOS langsung dan interaktif di dalam percakapan <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a> — plus iPhone asli Anda melalui USB.</strong><br />
-  <sub>21 alat agen &bull; panel samping MJPEG langsung &bull; simulator &amp; iPhone asli melalui USB &bull; aksi baris daftar/umpan &bull; muat ulang panas pratinjau SwiftUI</sub>
+  <sub>22 alat agen &bull; panel samping MJPEG langsung &bull; simulator &amp; iPhone asli melalui USB &bull; aksi baris daftar/umpan &bull; muat ulang panas pratinjau SwiftUI</sub>
 </p>
 
 <p align="center">
-  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Rilis plugin saat ini: <code>0.1.0-rc.1</code> &middot; Diuji dengan DSH <code>0.1.0-rc.6</code></sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Rilis plugin saat ini: <code>0.1.0-rc.2</code> &middot; Diuji dengan DSH <code>0.1.0-rc.6</code></sub>
 </p>
 
 <p align="center">
@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Rilis plugin saat ini: <code>0.1.0-rc.1</code> &middot; Diuji dengan DSH <code>0.1.0-rc.6</code></sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Rilis plugin saat ini: <code>0.1.0-rc.2</code> &middot; Diuji dengan DSH <code>0.1.0-rc.6</code></sub>
 </p>
 
 <br />
@@ -36,7 +36,7 @@ DSH Simulator iOS memberi agen simulator iOS sungguhan di dalam percakapan — d
 | --- | --- |
 | 🖥️ **Simulator langsung dalam percakapan** | Aliran MJPEG serve-sim dari perangkat yang di-boot, diproksikan melalui rute `/_dsh/dsh-ios/*` bertanda tangan ke panel kanan persisten — peramban tidak pernah menyentuh port serve-sim. |
 | 📱 **iPhone asli melalui USB** | `ios_real_start_wda` membangun dan meluncurkan WebDriverAgent pada ponsel yang terhubung dan menerowongkan port kontrol (REST) serta port layar (MJPEG) melalui loopback; panel, alat, kartu, dan kapsul status yang sama kemudian menggerakkan ponsel. Perangkat harus dalam keadaan terbuka kunci, dan setiap ketukan pada akun asli dibatasi aturan “kenali dulu, ketuk kemudian” milik plugin. |
-| 🛠️ **21 alat agen** | Perangkat, nyalakan/matikan, tangkapan layar, interaksi, build dan jalankan, log terpadu, pohon UI berbasis AXe dan ketuk per elemen, aksi baris daftar/umpan, temukan/ketuk teks dengan Vision OCR, muat ulang panas pratinjau SwiftUI, proses, backtrace, kebocoran, info aplikasi. |
+| 🛠️ **22 alat agen** | Perangkat, nyalakan/matikan, tangkapan layar, interaksi, build dan jalankan, log terpadu, pohon UI berbasis AXe dan ketuk per elemen, aksi baris daftar/umpan, temukan/ketuk teks dengan Vision OCR, muat ulang panas pratinjau SwiftUI, proses, backtrace, kebocoran, info aplikasi. |
 | 👆 **Panel interaktif** | Ketuk dan seret pada video langsung; bilah ikon Home / putar / tangkapan layar / segarkan dengan tooltip saat kursor di atas; mode ukuran (适应 · 50–125% · S/M/L); gaya bingkai (无框 / 边框 / 真机框); seret-ubah ukuran hingga 960 px dengan klik ganda untuk reset; perlebar otomatis saat lanskap. |
 | 🧾 **Baris daftar dan umpan** | `ios_sim_ui_rows` mengubah snapshot aksesibilitas dalam menjadi baris berindeks dengan label dan penghitung yang diurai secara generik; `ios_sim_tap_row` mengetuk di dalam baris pada koordinat relatif dan memverifikasi aksi melalui perubahan ±1 penghitung sesuai harapan — satu-satunya konfirmasi andal yang ditawarkan aplikasi daftar. |
 | 🔐 **Transport khusus loopback** | serve-sim hanya mengikat 127.0.0.1 pada rentang port khusus; setiap rute mewajibkan peer loopback, `Host` loopback, dan pemeriksaan Fetch-Metadata/Origin; kapabilitas HMAC kedaluwarsa dalam 10 menit.. |
@@ -45,7 +45,7 @@ DSH Simulator iOS memberi agen simulator iOS sungguhan di dalam percakapan — d
 
 ## Alat
 
-Ke-21 alat terdaftar di setiap host dan hanya mengembalikan JSON polos — byte visual hanya mencapai UI melalui `presentationMeta` + rute bertanda tangan, tidak pernah sebagai blok gambar. udid simulator dirutekan melalui simctl/serve-sim; udid perangkat fisik dirutekan melalui WebDriverAgent secara otomatis. Pada host non-macOS (atau saat serve-sim tidak dapat diselesaikan) alat tetap terdaftar tetapi gagal dengan error yang menjelaskan; satu-satunya pengecualian adalah `status` milik `ios_sim_preview`, yang melaporkan `{ running: false }` secara jujur di host mana pun.
+Ke-22 alat terdaftar di setiap host dan hanya mengembalikan JSON polos — byte visual hanya mencapai UI melalui `presentationMeta` + rute bertanda tangan, tidak pernah sebagai blok gambar. udid simulator dirutekan melalui simctl/serve-sim; udid perangkat fisik dirutekan melalui WebDriverAgent secara otomatis. Pada host non-macOS (atau saat serve-sim tidak dapat diselesaikan) alat tetap terdaftar tetapi gagal dengan error yang menjelaskan; satu-satunya pengecualian adalah `status` milik `ios_sim_preview`, yang melaporkan `{ running: false }` secara jujur di host mana pun.
 
 ### Alat simulator inti
 
@@ -83,6 +83,7 @@ Aplikasi daftar/umpan menggabungkan setiap item ke dalam satu sel aksesibilitas 
 | --- | --- | --- |
 | `ios_sim_find_text` | Meng-OCR layar SAAT INI dari simulator yang boot atau ponsel USB dengan helper Vision yang dikompilasi plugin (pengenalan akurat, zh-Hans + en-US, dikompilasi `swiftc` pada pemakaian pertama ke `~/Library/Caches/dsh-ios/bin/ocr`). Gunakan saat pohon aksesibilitas kosong atau menurun, untuk teks yang dirender sebagai grafis (angka badge, harga yang tercetak dalam gambar), atau untuk memverifikasi secara independen apa yang ada di layar. Menangkap tangkapan layar baru dan mengembalikan `{device, size, items:[{text, confidence, rect}]}` — rect adalah kotak poin perangkat (asal kiri-atas), terurut berdasarkan keyakinan, output dibatasi ~40 KB (`truncated` membuang ekor dengan keyakinan terendah; persempit dengan `query` atau naikkan `min_confidence`). | `udid` (opsional), `query` (substring tanpa membedakan huruf besar/kecil), `min_confidence` (default 0.3) |
 | `ios_sim_tap_text` | Meng-OCR layar SAAT INI dan mengetuk pusat kecocokan teks terbaik — aturan yang sama: persis → mengandung tanpa membedakan huruf besar/kecil → daftar kandidat saat ambigu, seperti `ios_sim_tap_element`, untuk teks yang tidak terlihat pohon aksesibilitas (aplikasi tanpa a11y, angka badge, teks yang tercetak dalam gambar). Di ponsel, ketukan mendarat pada poin absolut perangkat melalui WebDriverAgent; pada simulator yang dialirkan, dikirim ternormalisasi melalui kontrol serve-sim (jalankan `ios_sim_boot` dulu). Setelah ~300 ms tangkapan layar baru memperlihatkan efeknya; teruskan `expect_text` / `expect_gone` dan ketukan beserta verifikasinya menjadi satu perjalanan pulang-pergi (`expected.matched`). Pada perangkat ASLI, setiap ketukan punya konsekuensi nyata — jangan pernah mengetuk kontrol yang tidak dikenal untuk mencari tahu fungsinya. | `udid` (opsional), `query` (wajib), `min_confidence`, `expect_text`, `expect_gone` |
+| `ios_sim_wait_for` | Menunggu sampai sebuah teks muncul atau hilang dari layar, mem-polling pipeline tangkap+OCR yang sama dengan `ios_sim_find_text` hingga kondisinya terpenuhi atau waktu habis (bawaan 8 dtk, maks. 60 dtk). Timeout adalah jawaban normal `matched:false`, tidak pernah error — satu panggilan menggantikan loop find_text manual (~1,2 dtk per putaran di iPhone sungguhan). Saat cocok, `item` membawa teks OCR, tingkat keyakinan, dan kotak dalam satuan point perangkat. | `udid` (opsional), `text` (wajib), `mode` (`appear`/`disappear`), `timeout_ms`, `min_confidence` |
 
 ### Alat log
 
@@ -125,8 +126,8 @@ Aplikasi daftar/umpan menggabungkan setiap item ke dalam satu sel aksesibilitas 
 
 - **macOS dengan Xcode lengkap** — bukan hanya Command Line Tools. `xcodebuild`, `xcrun simctl`, dan runtime simulator semuanya disertakan bersama Xcode.
 - **Setidaknya satu runtime simulator iOS** terpasang di Xcode.
-- **DSH ≥ 0.1.0-rc.6 dengan bundel web** untuk panel. Profil headless juga bekerja: ke-21 alat berfungsi normal, hanya tanpa tampilan langsung.
-- **Host non-macOS**: plugin dimuat dan ke-21 alat terdaftar, tetapi setiap panggilan mengembalikan error yang menjelaskan (`iOS Simulator requires macOS with Xcode …`).
+- **DSH ≥ 0.1.0-rc.6 dengan bundel web** untuk panel. Profil headless juga bekerja: ke-22 alat berfungsi normal, hanya tanpa tampilan langsung.
+- **Host non-macOS**: plugin dimuat dan ke-22 alat terdaftar, tetapi setiap panggilan mengembalikan error yang menjelaskan (`iOS Simulator requires macOS with Xcode …`).
 - **serve-sim** dikirim sebagai dependensi npm plugin ini, sehingga terselesaikan secara lokal pada pemasangan sungguhan; cadangan `npx -y serve-sim` menutupi pohon pengembangan (pemakaian pertama butuh jaringan).
 - **AXe** (opsional — hanya alat berbasis AXe yang membutuhkannya: `ios_sim_ui_tree` / `ios_sim_tap_element`, plus `ios_sim_ui_rows` / `ios_sim_tap_row` pada simulator): `brew install cameroncooke/axe/axe`, atau biarkan plugin mengunduh otomatis rilis yang disematkan (v1.8.0, terverifikasi SHA-256) ke `~/Library/Caches/dsh-ios/bin`. `DSH_IOS_AXE_BIN` menimpa resolusi; `DSH_IOS_AXE_OFFLINE=1` menonaktifkan unduhan.
 - **Vision OCR** (opsional — hanya `ios_sim_find_text` / `ios_sim_tap_text` yang membutuhkannya): plugin mengompilasi `assets/ocr.swift` bawaannya dengan `swiftc` pada pemakaian pertama ke `~/Library/Caches/dsh-ios/bin/ocr` (pengenalan zh-Hans + en-US).

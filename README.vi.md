@@ -6,11 +6,11 @@
 
 <p align="center">
   <strong>Trình mô phỏng iOS trực tiếp, có thể tương tác ngay trong cuộc hội thoại <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a> — cùng iPhone thật của bạn qua USB.</strong><br />
-  <sub>21 công cụ agent &bull; bảng bên MJPEG trực tiếp &bull; trình mô phỏng &amp; iPhone thật qua USB &bull; thao tác hàng danh sách/bảng tin &bull; hot reload bản xem trước SwiftUI</sub>
+  <sub>22 công cụ agent &bull; bảng bên MJPEG trực tiếp &bull; trình mô phỏng &amp; iPhone thật qua USB &bull; thao tác hàng danh sách/bảng tin &bull; hot reload bản xem trước SwiftUI</sub>
 </p>
 
 <p align="center">
-  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Bản phát hành plugin hiện tại: <code>0.1.0-rc.1</code> &middot; Đã kiểm thử với DSH <code>0.1.0-rc.6</code></sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Bản phát hành plugin hiện tại: <code>0.1.0-rc.2</code> &middot; Đã kiểm thử với DSH <code>0.1.0-rc.6</code></sub>
 </p>
 
 <p align="center">
@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Phiên bản plugin hiện tại: <code>0.1.0-rc.1</code> &middot; Đã kiểm thử với DSH <code>0.1.0-rc.6</code></sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Phiên bản plugin hiện tại: <code>0.1.0-rc.2</code> &middot; Đã kiểm thử với DSH <code>0.1.0-rc.6</code></sub>
 </p>
 
 <br />
@@ -36,7 +36,7 @@ DSH Trình mô phỏng iOS trao cho agent một trình mô phỏng iOS thật ng
 | --- | --- |
 | 🖥️ **Trình mô phỏng trực tiếp trong hội thoại** | Luồng MJPEG serve-sim của thiết bị đã khởi động, được proxy qua các tuyến `/_dsh/dsh-ios/*` có chữ ký vào bảng bên phải cố định — trình duyệt không bao giờ chạm vào cổng của serve-sim. |
 | 📱 **iPhone thật qua USB** | `ios_real_start_wda` build và khởi chạy WebDriverAgent trên điện thoại đã kết nối, tạo đường hầm cho cổng điều khiển (REST) và cổng màn hình (MJPEG) qua loopback; bảng, công cụ, thẻ và viên trạng thái đó sau đó điều khiển điện thoại. Thiết bị phải được mở khóa, và mọi cú chạm trên tài khoản thật đều bị ràng buộc bởi quy tắc “nhận diện trước, chạm sau” của plugin. |
-| 🛠️ **21 công cụ agent** | Thiết bị, khởi động/tắt, ảnh chụp màn hình, tương tác, build và chạy, nhật ký hợp nhất, cây UI dựa trên AXe và chạm theo phần tử, thao tác hàng danh sách/bảng tin, tìm/chạm văn bản bằng Vision OCR, hot reload bản xem trước SwiftUI, tiến trình, backtrace, rò rỉ, thông tin ứng dụng. |
+| 🛠️ **22 công cụ agent** | Thiết bị, khởi động/tắt, ảnh chụp màn hình, tương tác, build và chạy, nhật ký hợp nhất, cây UI dựa trên AXe và chạm theo phần tử, thao tác hàng danh sách/bảng tin, tìm/chạm văn bản bằng Vision OCR, hot reload bản xem trước SwiftUI, tiến trình, backtrace, rò rỉ, thông tin ứng dụng. |
 | 👆 **Bảng tương tác** | Chạm và kéo trên video trực tiếp; thanh biểu tượng Home / xoay / chụp màn hình / làm mới với chú giải khi rê chuột; chế độ kích thước (适应 · 50–125% · S/M/L); kiểu khung (无框 / 边框 / 真机框); kéo đổi kích thước đến 960 px với nhấp đúp để đặt lại; tự mở rộng khi nằm ngang. |
 | 🧾 **Hàng danh sách và bảng tin** | `ios_sim_ui_rows` biến ảnh chụp trợ năng sâu thành các hàng có chỉ mục với nhãn và bộ đếm được phân tích tổng quát; `ios_sim_tap_row` chạm bên trong một hàng tại tọa độ tương đối và xác minh hành động bằng thay đổi ±1 như kỳ vọng của bộ đếm — xác nhận đáng tin cậy duy nhất mà ứng dụng dạng danh sách cung cấp. |
 | 🔐 **Vận chuyển chỉ qua loopback** | serve-sim chỉ gắn với 127.0.0.1 trong dải cổng riêng; mọi tuyến đều yêu cầu một đầu loopback, `Host` loopback và kiểm tra Fetch-Metadata/Origin; năng lực HMAC hết hạn trong vòng 10 phút.. |
@@ -45,7 +45,7 @@ DSH Trình mô phỏng iOS trao cho agent một trình mô phỏng iOS thật ng
 
 ## Công cụ
 
-Cả 21 công cụ đều được đăng ký trên mọi máy chủ và chỉ trả về JSON thuần — các byte hình ảnh chỉ đến UI qua `presentationMeta` + các tuyến có chữ ký, không bao giờ dưới dạng khối ảnh. udid trình mô phỏng đi qua simctl/serve-sim; udid thiết bị vật lý tự động đi qua WebDriverAgent. Trên máy chủ không phải macOS (hoặc khi không phân giải được serve-sim) các công cụ vẫn được đăng ký nhưng thất bại với lỗi giải thích; ngoại lệ duy nhất là `status` của `ios_sim_preview`, nó báo trung thực `{ running: false }` trên mọi máy chủ.
+Cả 22 công cụ đều được đăng ký trên mọi máy chủ và chỉ trả về JSON thuần — các byte hình ảnh chỉ đến UI qua `presentationMeta` + các tuyến có chữ ký, không bao giờ dưới dạng khối ảnh. udid trình mô phỏng đi qua simctl/serve-sim; udid thiết bị vật lý tự động đi qua WebDriverAgent. Trên máy chủ không phải macOS (hoặc khi không phân giải được serve-sim) các công cụ vẫn được đăng ký nhưng thất bại với lỗi giải thích; ngoại lệ duy nhất là `status` của `ios_sim_preview`, nó báo trung thực `{ running: false }` trên mọi máy chủ.
 
 ### Công cụ mô phỏng cốt lõi
 
@@ -83,6 +83,7 @@ Các ứng dụng danh sách/bảng tin gộp mỗi mục vào một ô trợ n�
 | --- | --- | --- |
 | `ios_sim_find_text` | OCR màn hình HIỆN TẠI của trình mô phỏng đã khởi động hoặc điện thoại USB bằng trợ thủ Vision do plugin biên dịch (nhận dạng chính xác, zh-Hans + en-US, được `swiftc` biên dịch vào `~/Library/Caches/dsh-ios/bin/ocr` ở lần dùng đầu). Dùng khi cây trợ năng rỗng hoặc suy biến, cho văn bản vẽ dạng đồ họa (số huy hiệu, giá in trong ảnh), hoặc để xác minh độc lập những gì trên màn hình. Chụp một ảnh mới và trả về `{device, size, items:[{text, confidence, rect}]}` — rect là các hộp điểm thiết bị (gốc trên-trái), sắp theo độ tin cậy, đầu ra giới hạn ~40 KB (`truncated` bỏ phần đuôi độ tin cậy thấp nhất; thu hẹp bằng `query` hoặc tăng `min_confidence`). | `udid` (tùy chọn), `query` (chuỗi con không phân biệt hoa thường), `min_confidence` (mặc định 0.3) |
 | `ios_sim_tap_text` | OCR màn hình HIỆN TẠI và chạm vào tâm của khớp văn bản tốt nhất — cùng quy tắc chính xác → chứa không phân biệt hoa thường → danh sách ứng viên khi mơ hồ như `ios_sim_tap_element`, cho văn bản mà cây trợ năng không thấy (ứng dụng không có a11y, số huy hiệu, văn bản in trong ảnh). Trên điện thoại, cú chạm rơi vào điểm tuyệt đối của thiết bị qua WebDriverAgent; trên trình mô phỏng đang truyền, nó được gửi chuẩn hóa qua điều khiển serve-sim (chạy `ios_sim_boot` trước). Sau ~300 ms, ảnh chụp mới cho thấy hiệu quả; truyền `expect_text` / `expect_gone` thì cú chạm cùng xác minh của nó trở thành một vòng khứ hồi (`expected.matched`). Trên thiết bị THẬT, mọi cú chạm đều có hậu quả thật — đừng bao giờ chạm một điều khiển không rõ danh tính để dò xem nó làm gì. | `udid` (tùy chọn), `query` (bắt buộc), `min_confidence`, `expect_text`, `expect_gone` |
+| `ios_sim_wait_for` | Chờ đến khi một đoạn văn bản xuất hiện hoặc biến mất trên màn hình, thăm dò cùng pipeline chụp+OCR của `ios_sim_find_text` cho tới khi điều kiện đúng hoặc hết thời gian (mặc định 8 giây, tối đa 60 giây). Hết giờ là câu trả lời bình thường `matched:false`, không bao giờ là lỗi — một lần gọi thay cho vòng lặp find_text thủ công (~1,2 giây mỗi vòng trên iPhone thật). Khi khớp, `item` mang văn bản OCR, độ tin cậy và khung chữ nhật theo điểm của thiết bị. | `udid` (tuỳ chọn), `text` (bắt buộc), `mode` (`appear`/`disappear`), `timeout_ms`, `min_confidence` |
 
 ### Công cụ nhật ký
 
@@ -125,8 +126,8 @@ Các ứng dụng danh sách/bảng tin gộp mỗi mục vào một ô trợ n�
 
 - **macOS với Xcode đầy đủ** — không chỉ Command Line Tools. `xcodebuild`, `xcrun simctl` và các runtime trình mô phỏng đều đi kèm Xcode.
 - **Ít nhất một runtime trình mô phỏng iOS** được cài trong Xcode.
-- **DSH ≥ 0.1.0-rc.6 kèm gói web** cho bảng. Hồ sơ headless cũng hoạt động: cả 21 công cụ chạy bình thường, chỉ thiếu khung nhìn trực tiếp.
-- **Máy chủ không phải macOS**: plugin vẫn tải và cả 21 công cụ vẫn đăng ký, nhưng mọi lần gọi đều trả về lỗi giải thích (`iOS Simulator requires macOS with Xcode …`).
+- **DSH ≥ 0.1.0-rc.6 kèm gói web** cho bảng. Hồ sơ headless cũng hoạt động: cả 22 công cụ chạy bình thường, chỉ thiếu khung nhìn trực tiếp.
+- **Máy chủ không phải macOS**: plugin vẫn tải và cả 22 công cụ vẫn đăng ký, nhưng mọi lần gọi đều trả về lỗi giải thích (`iOS Simulator requires macOS with Xcode …`).
 - **serve-sim** đi kèm như phụ thuộc npm của plugin này, nên được phân giải cục bộ ở các bản cài thật; phương án dự phòng `npx -y serve-sim` bao phủ cây phát triển (lần dùng đầu cần mạng).
 - **AXe** (tùy chọn — chỉ các công cụ dựa trên AXe cần: `ios_sim_ui_tree` / `ios_sim_tap_element`, cùng `ios_sim_ui_rows` / `ios_sim_tap_row` trên trình mô phỏng): `brew install cameroncooke/axe/axe`, hoặc để plugin tự tải bản phát hành được ghim (v1.8.0, xác minh SHA-256) vào `~/Library/Caches/dsh-ios/bin`. `DSH_IOS_AXE_BIN` ghi đè phân giải; `DSH_IOS_AXE_OFFLINE=1` tắt tải xuống.
 - **Vision OCR** (tùy chọn — chỉ `ios_sim_find_text` / `ios_sim_tap_text` cần): plugin biên dịch `assets/ocr.swift` đi kèm bằng `swiftc` ở lần dùng đầu vào `~/Library/Caches/dsh-ios/bin/ocr` (nhận dạng zh-Hans + en-US).
