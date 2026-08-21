@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; 当前插件版本：<code>0.1.0-rc.2</code> &middot; 已在 DSH <code>0.1.0-rc.6</code> 验证</sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; 当前插件版本：<code>0.1.0-rc.2</code> &middot; 已在 DSH <code>0.1.1-rc.1</code> 验证</sub>
 </p>
 
 <p align="center">
@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; 当前插件版本: <code>0.1.0-rc.2</code> &middot; 已在 DSH <code>0.1.0-rc.6</code> 验证</sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; 当前插件版本: <code>0.1.0-rc.2</code> &middot; 已在 DSH <code>0.1.1-rc.1</code> 验证</sub>
 </p>
 
 <br />
