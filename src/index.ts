@@ -32,7 +32,7 @@ import {
 } from './tool-uitree.js'
 import { createSimRowTools, IOS_ROW_TOOL_NAMES } from './tool-list-rows.js'
 import { createSimLogTools } from './tool-logs.js'
-import { createSimDebugTools } from './tool-debug.js'
+import { createSimDebugTools, IOS_DEBUG_TOOL_NAMES } from './tool-debug.js'
 import { createSimPreviewTools, IOS_PREVIEW_TOOL_NAMES } from './tool-preview.js'
 import { registerIosSkill } from './skill.js'
 import { installStreamRoutes } from './stream-routes.js'
@@ -407,7 +407,13 @@ export function apply(ctx: Context): () => Promise<void> {
   disposers.push(ctx.effect(() => {
     const disposeFind = hostCtx.tools.register(ocrTools.iosSimFindText)
     const disposeTap = hostCtx.tools.register(ocrTools.iosSimTapText)
+    // ios_sim_wait_for was created by the factory (and the skill playbook
+    // tells the model to use it) but was never registered here — the exact
+    // WP57 failure shape again: an advertised verb with no implementation
+    // behind it.
+    const disposeWait = hostCtx.tools.register(ocrTools.iosSimWaitFor)
     return () => {
+      disposeWait()
       disposeTap()
       disposeFind()
     }
@@ -430,7 +436,9 @@ export function apply(ctx: Context): () => Promise<void> {
   // optional webServer service; headless profiles skip them entirely.
   installStreamRoutes(ctx, host, wda)
 
-  ctx.logger.info(`dsh-ios mounted (${IOS_TOOL_NAMES.join(' + ')} + ${IOS_UI_TOOL_NAMES.join(' + ')} + ${IOS_ROW_TOOL_NAMES.join(' + ')} + ${IOS_OCR_TOOL_NAMES.join(' + ')} + ${IOS_PREVIEW_TOOL_NAMES.join(' + ')}; serve-sim: ${host.status().serveSimSource}; WDA: ${wda.status().available ? 'available' : `unavailable (${wda.tooling.reason ?? '?'})`})`)
+  // The mounted-tool inventory must list what was actually registered:
+  // ios_sim_logs and the four debug tools were mounted above but missing here.
+  ctx.logger.info(`dsh-ios mounted (${IOS_TOOL_NAMES.join(' + ')} + ${IOS_UI_TOOL_NAMES.join(' + ')} + ${IOS_ROW_TOOL_NAMES.join(' + ')} + ${IOS_OCR_TOOL_NAMES.join(' + ')} + ios_sim_logs + ${IOS_PREVIEW_TOOL_NAMES.join(' + ')} + ${IOS_DEBUG_TOOL_NAMES.join(' + ')}; serve-sim: ${host.status().serveSimSource}; WDA: ${wda.status().available ? 'available' : `unavailable (${wda.tooling.reason ?? '?'})`})`)
   return async () => {
     for (const dispose of disposers.reverse()) await dispose()
     await previewTools.controller.dispose()
