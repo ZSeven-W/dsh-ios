@@ -44,7 +44,7 @@ import {
   type JsonValue,
   type ToolDefinition,
 } from '@deepseek-ai/dsh-tools'
-import { closeSync, mkdirSync, openSync, readSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, mkdirSync, openSync, readSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SimHostController } from './sim-host.js'
@@ -709,7 +709,14 @@ class ScreenshotStore {
         if (Number.isInteger(index) && index >= next) next = index + 1
       }
     }
-    const path = join(this.#root, `screenshot-${safe}-${next}.png`)
+    // Three independent counters share this directory (tools.ts's twin store
+    // and the panel capture route) — skip names that already exist on disk so
+    // a later writer can never overwrite a capture whose signed URL is live.
+    let path = join(this.#root, `screenshot-${safe}-${next}.png`)
+    while (existsSync(path)) {
+      next += 1
+      path = join(this.#root, `screenshot-${safe}-${next}.png`)
+    }
     this.#next.set(safe, next + 1)
     return path
   }

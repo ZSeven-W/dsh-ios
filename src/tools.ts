@@ -19,7 +19,7 @@ import {
   type JsonValue,
   type ToolDefinition,
 } from '@deepseek-ai/dsh-tools'
-import { closeSync, mkdirSync, openSync, readSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, mkdirSync, openSync, readSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import {
   filterInstalledApps,
   listPhysicalDeviceApps,
@@ -568,7 +568,16 @@ class ScreenshotStore {
         if (Number.isInteger(index) && index >= next) next = index + 1
       }
     }
-    const path = join(this.#root, `screenshot-${safe}-${next}.png`)
+    // THREE independent counters share this directory (this store, the UI
+    // tools' twin in tool-uitree.ts, and the panel capture route) — each
+    // scans the directory only once, so their counters collide and a later
+    // write would overwrite an earlier capture whose signed URL is still
+    // live. Skipping names that exist on disk keeps every writer safe.
+    let path = join(this.#root, `screenshot-${safe}-${next}.png`)
+    while (existsSync(path)) {
+      next += 1
+      path = join(this.#root, `screenshot-${safe}-${next}.png`)
+    }
     this.#next.set(safe, next + 1)
     return path
   }

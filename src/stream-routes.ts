@@ -95,7 +95,7 @@
  */
 
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
-import { constants as fsConstants, readdirSync, statSync } from 'node:fs'
+import { constants as fsConstants, existsSync, readdirSync, statSync } from 'node:fs'
 import { lstat, mkdir, open, readFile, realpath, writeFile } from 'node:fs/promises'
 import { get as httpGet } from 'node:http'
 import { get as httpsGet } from 'node:https'
@@ -733,7 +733,14 @@ async function nextCapturePath(udid: string): Promise<string> {
       if (Number.isInteger(index) && index >= next) next = index + 1
     }
   }
-  const path = join(root, `screenshot-${safe}-${next}.png`)
+  // The tools' two ScreenshotStores share this directory with their own
+  // counters — skip names that already exist so a route capture can never
+  // overwrite a tool capture whose signed URL is still live (and vice versa).
+  let path = join(root, `screenshot-${safe}-${next}.png`)
+  while (existsSync(path)) {
+    next += 1
+    path = join(root, `screenshot-${safe}-${next}.png`)
+  }
   captureNextIndex.set(safe, next + 1)
   return path
 }
