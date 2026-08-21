@@ -51,7 +51,7 @@ import {
   writeFileSync,
   type FSWatcher,
 } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 import type { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { projectSlug } from './build-run.js'
@@ -791,7 +791,12 @@ function watchPackageTree(root: string, onChange: () => void): PackageWatcher {
     const watcher = watch(root, { recursive: true }, (_event, filename) => {
       if (closed) return
       const name = typeof filename === 'string' ? filename : ''
-      if (name !== '' && IGNORED_SCAN_DIRS.has(name)) return
+      // Recursive watch reports RELATIVE paths ('.build/debug/foo.o'), so the
+      // ignore check must look at the top-level segment — comparing the whole
+      // string only matched the directory entry itself, and every artifact a
+      // user-run `swift build` wrote inside .build triggered a rebuild.
+      const top = name.split(sep)[0] ?? ''
+      if (top !== '' && IGNORED_SCAN_DIRS.has(top)) return
       onChange()
     })
     watchers.push(watcher)
