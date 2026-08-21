@@ -1,13 +1,17 @@
 # Publish to npm when a version tag is pushed.
 #
-# No token and no one-time password: npm's trusted publishing lets this
-# workflow prove its identity to the registry over OIDC, which is why
-# `permissions.id-token` is required and why no NODE_AUTH_TOKEN appears
-# anywhere below.
-#
-# One-time setup on npmjs.com, under the package's Settings -> Trusted
-# Publisher: pick GitHub Actions, then name this repository and this file
-# (release.yml).
+# Authentication, in preference order:
+# 1. npm trusted publishing (OIDC) — the workflow proves its identity to the
+#    registry, which is why `permissions.id-token` is present. One-time setup
+#    on npmjs.com, under the package's Settings -> Trusted Publisher: pick
+#    GitHub Actions, then name this repository and this file (release.yml).
+# 2. The NPM_TOKEN repository secret — npm >= 11.5 falls back to it when the
+#    OIDC exchange is unavailable (no trusted publisher configured yet). The
+#    token must be an Automation (or granular publish) token, or npm will
+#    demand a one-time password no CI run can type. Note the OIDC path has
+#    never actually published (rc.1 was published by hand and the run for its
+#    tag hit the already-on-the-registry skip), so the token is what makes
+#    the NEXT release safe either way.
 name: release
 
 on:
@@ -22,15 +26,20 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+          cache: pnpm
           registry-url: https://registry.npmjs.org
 
-      # The bundled npm predates trusted publishing.
-      - run: npm install -g npm@latest
+      # The bundled npm predates trusted publishing. Pinned to the major so a
+      # future npm (which may e.g. reject setup-node's `always-auth` npmrc key
+      # it currently only warns about) cannot break a release out of nowhere.
+      - run: npm install -g npm@11
 
       - run: pnpm install --frozen-lockfile
 
@@ -58,6 +67,12 @@ jobs:
       # a re-pushed tag — or a version first published by hand — turns the
       # release red for a reason nobody needs to act on.
       - name: Publish
+        env:
+          # Fallback credential for the OIDC-less case; setup-node's npmrc
+          # references exactly this variable. npm tries the trusted-publishing
+          # exchange first and only then reads the token, so configuring the
+          # trusted publisher later needs no workflow change.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           name="$(node -p "require('./package.json').name")"
           pkg="$(node -p "require('./package.json').version")"
