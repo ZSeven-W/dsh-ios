@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Bản phát hành plugin hiện tại: <code>0.1.0-rc.2</code> &middot; Đã kiểm thử với DSH <code>0.1.1-rc.1</code></sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Bản phát hành plugin hiện tại: <code>0.1.0-rc.3</code> &middot; Đã kiểm thử với DSH <code>0.1.1-rc.1</code></sub>
 </p>
 
 <p align="center">
@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Phiên bản plugin hiện tại: <code>0.1.0-rc.2</code> &middot; Đã kiểm thử với DSH <code>0.1.1-rc.1</code></sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Phiên bản plugin hiện tại: <code>0.1.0-rc.3</code> &middot; Đã kiểm thử với DSH <code>0.1.1-rc.1</code></sub>
 </p>
 
 <br />

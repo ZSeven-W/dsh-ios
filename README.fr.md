@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Version actuelle du plugin : <code>0.1.0-rc.2</code> &middot; Testé avec DSH <code>0.1.1-rc.1</code></sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Version actuelle du plugin : <code>0.1.0-rc.3</code> &middot; Testé avec DSH <code>0.1.1-rc.1</code></sub>
 </p>
 
 <p align="center">
@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <sub>rc : <code>0.1.0-rc.2</code> n'est pas encore publié sur npm — voir <a href="#installation-dans-dsh">Installation</a></sub>
+  <sub>rc : <code>0.1.0-rc.3</code> n'est pas encore publié sur npm — voir <a href="#installation-dans-dsh">Installation</a></sub>
 </p>
 
 <br />

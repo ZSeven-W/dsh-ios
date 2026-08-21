@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Текущий релиз плагина: <code>0.1.0-rc.2</code> &middot; Проверено с DSH <code>0.1.1-rc.1</code></sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Текущий релиз плагина: <code>0.1.0-rc.3</code> &middot; Проверено с DSH <code>0.1.1-rc.1</code></sub>
 </p>
 
 <p align="center">
@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Текущая версия плагина: <code>0.1.0-rc.2</code> &middot; Проверено с DSH <code>0.1.1-rc.1</code></sub>
+  <sub>npm: <code>@zseven-w/dsh-ios</code> &middot; Текущая версия плагина: <code>0.1.0-rc.3</code> &middot; Проверено с DSH <code>0.1.1-rc.1</code></sub>
 </p>
 
 <br />
