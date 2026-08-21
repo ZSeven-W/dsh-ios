@@ -140,7 +140,9 @@ const TERMINATORS = '\\s,，.。:：;；!！?？…—\\-–%+*/()（）\\[\\]�
  * (?!\d) guard drops "1A215"-style serial tokens where the "classifier" is
  * really the head of another number. */
 const COUNT_REGEXP = new RegExp(
-  `(\\d[\\d,]*(?:\\.\\d+)?)\\s*([万亿kmwKM]?)\\s*([^\\d${TERMINATORS}]+)(?!\\d)`,
+  // The class must cover every MULTIPLIERS key — `W` (net-speak 万) was
+  // missing, so "3.2W 赞" parsed the W into the classifier instead of ×10000.
+  `(\\d[\\d,]*(?:\\.\\d+)?)\\s*([万亿kmwKMW]?)\\s*([^\\d${TERMINATORS}]+)(?!\\d)`,
   'gu',
 )
 
