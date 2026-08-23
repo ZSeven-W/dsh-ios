@@ -462,7 +462,13 @@ function deriveState(
   return pairingState === 'paired' ? 'available (paired)' : 'available'
 }
 
-function parseJsonDevices(json: unknown): RealDevice[] {
+/**
+ * Parse `result.devices[]` into RealDevice rows. Simulator rows are dropped
+ * ONLY on an explicit devicectl verdict (see the reality guard in the loop);
+ * everything else — including devices that report no reality field at all —
+ * is kept as a physical device.
+ */
+export function parseJsonDevices(json: unknown): RealDevice[] {
   if (typeof json !== 'object' || json === null) return []
   const result = (json as { result?: unknown }).result
   if (typeof result !== 'object' || result === null) return []
@@ -480,6 +486,20 @@ function parseJsonDevices(json: unknown): RealDevice[] {
     const hardwareProperties = typeof record.hardwareProperties === 'object' && record.hardwareProperties !== null
       ? record.hardwareProperties as Record<string, unknown>
       : undefined
+    const flatProperties = typeof record.properties === 'object' && record.properties !== null
+      ? record.properties as Record<string, unknown>
+      : undefined
+    // Simulators are excluded ONLY on an explicit devicectl verdict:
+    // reality === 'simulated' (inside hardwareProperties or the flat
+    // properties map) or visibilityClass === 'simulators'. Physical devices
+    // report reality === 'physical' OR no reality field at all (an offline
+    // iPad reports neither), so a keep-only-'physical' filter would silently
+    // drop real devices from listRealDevices. Everything that is not
+    // explicitly simulated stays.
+    const reality = hardwareProperties === undefined ? undefined : readStringField(hardwareProperties, 'reality')
+    const flatReality = flatProperties === undefined ? undefined : readStringField(flatProperties, 'hardware.reality')
+    const visibilityClass = readStringField(record, 'visibilityClass')
+    if (reality === 'simulated' || flatReality === 'simulated' || visibilityClass === 'simulators') continue
     const connectionProperties = typeof record.connectionProperties === 'object' && record.connectionProperties !== null
       ? record.connectionProperties as Record<string, unknown>
       : undefined
@@ -534,9 +554,11 @@ function parseJsonDevices(json: unknown): RealDevice[] {
 
 /**
  * Text fallback for `devicectl list devices` (used when JSON output is
- * unavailable). Columns are located by their header names.
+ * unavailable). Columns are located by their header names. Newer devicectl
+ * builds add a `Reality` column; rows whose Reality value is `simulated`
+ * are skipped, while output without that column parses exactly as before.
  */
-function parseDevicesText(stdout: string): RealDevice[] {
+export function parseDevicesText(stdout: string): RealDevice[] {
   const lines = stdout.split('\n').map(line => line.replace(/\r$/, ''))
   const headerIndex = lines.findIndex(line => line.includes('Identifier'))
   if (headerIndex < 0) return []
@@ -556,15 +578,23 @@ function parseDevicesText(stdout: string): RealDevice[] {
   const nameAt = columnAt('Name')
   const stateAt = columnAt('State')
   const modelAt = columnAt('Model')
+  const realityAt = columnAt('Reality')
+  // Hostname is never emitted, but it sits between Name and Identifier, so it
+  // has to bound Name's slice or the name swallows the hostname after it.
+  const hostnameAt = columnAt('Hostname')
   if (idAt === undefined) return []
   const slice = (line: string, start: number, next: number | undefined): string =>
     line.slice(start, next).trim()
-  const starts = [idAt, nameAt, stateAt, modelAt].filter((v): v is number => v !== undefined).sort((a, b) => a - b)
+  // Every known column joins the boundary list so columns to its left stop
+  // slicing before it (an unlisted middle column would bleed into the next).
+  // When a column is absent it filters out and slicing is unchanged.
+  const starts = [idAt, nameAt, hostnameAt, stateAt, modelAt, realityAt].filter((v): v is number => v !== undefined).sort((a, b) => a - b)
   const devices: RealDevice[] = []
   for (const line of lines.slice(headerIndex + 1)) {
     if (line.trim() === '' || line.trim().startsWith('-')) continue
     const id = slice(line, idAt, starts.find(v => v > idAt))
     if (id === '') continue
+    if (realityAt !== undefined && slice(line, realityAt, starts.find(v => v > realityAt)) === 'simulated') continue
     const name = nameAt === undefined ? id : slice(line, nameAt, starts.find(v => v > nameAt))
     const state = stateAt === undefined ? 'unknown' : slice(line, stateAt, starts.find(v => v > stateAt))
     devices.push({
