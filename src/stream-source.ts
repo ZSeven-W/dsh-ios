@@ -334,6 +334,18 @@ export interface WdaControllerLike {
 export const WDA_WINDOW_SIZE_TTL_MS = 1200
 
 /**
+ * How old a CACHED size may still be when the fresh read FAILS. A busy
+ * device (video playback) makes the refresh time out, but the point space
+ * has not changed — rotation goes through this adapter's own rotate() and
+ * drops the cache, and a human cannot rotate the phone and land a tap
+ * within this window either. So a recent-enough stale size keeps gestures
+ * working through a stall instead of failing every tap, while an older one
+ * (a possible app switch) fails the gesture fast rather than tapping in
+ * the wrong space.
+ */
+export const WDA_WINDOW_SIZE_STALE_TAP_MS = 5_000
+
+/**
  * Thin `StreamSource` adapter over `WdaController`: normalized panel
  * coordinates are multiplied by the live window size (points) into the
  * absolute point coordinates WDA's `/wda/tap` and `/wda/dragfromtoforduration`
@@ -482,7 +494,26 @@ export class WdaStreamSource implements StreamSource {
     ) {
       return cached.size
     }
-    const size = await this.wda.control.windowSize()
+    let size: { width: number; height: number }
+    try {
+      size = await this.wda.control.windowSize()
+    } catch (error) {
+      // The refresh failed (a busy WDA times it out, or the fast-fail busy
+      // gate refuses it). A recent cached size still describes the gesture
+      // space — rotation is invalidated by our own rotate(), and the window
+      // bounds the app-switch hazard — so the gesture proceeds through the
+      // stall instead of failing. Older than that, the coordinates may be
+      // wrong (a foreground app switch) and failing fast beats tapping in
+      // the wrong space.
+      if (
+        cached !== undefined
+        && cached.sessionId === sessionId
+        && Date.now() - cached.at < WDA_WINDOW_SIZE_STALE_TAP_MS
+      ) {
+        return cached.size
+      }
+      throw error
+    }
     this.#sizeCache = { size, at: Date.now(), ...(sessionId === undefined ? {} : { sessionId }) }
     return size
   }

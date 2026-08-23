@@ -15,6 +15,12 @@
  *   (device 9100);
  * - health-checks `GET /status` until `ready`, then creates one WDA session
  *   that is lazily reused and recreated on 404 / `invalid session` errors;
+ * - gates every WDA request behind a busy cooldown: one timed-out request
+ *   arms it and new requests fail fast with a busy error instead of queueing
+ *   behind the stuck command (WDA serves serially and a client-side timeout
+ *   never cancels the device-side work), the cheap window/size + orientation
+ *   GETs get a 5 s budget of their own, and the window size is cached across
+ *   ALL callers with rotation/session invalidation;
  * - treats successful WDA traffic as liveness (every 2xx response refreshes
  *   a traffic clock that keeps `running` true while the device is being
  *   driven), and only declares an ADOPTED runner dead after
@@ -272,6 +278,31 @@ export interface WdaControl {
 
 export interface WdaClientOptions {
   requestTimeoutMs?: number
+  /**
+   * Timeout for the cheap session-scoped GETs (window/size, orientation).
+   * These answer in ~250 ms on a healthy device, so a 30 s budget would only
+   * ever be spent waiting on a WDA whose dispatcher is stuck behind a slow
+   * command (exactly what happens while the device plays video) — and while
+   * we wait, the gesture the value was meant for queues ANOTHER command
+   * behind the same stuck one. Failing fast here keeps a busy device from
+   * being flooded by requests that can only time out.
+   * Default WDA_FAST_TIMEOUT_MS.
+   */
+  shortTimeoutMs?: number
+  /**
+   * After any request TIMES OUT, reject new requests for this long with a
+   * busy error instead of sending them into the same stuck dispatcher.
+   * WDA serves requests serially and a client-side timeout does NOT cancel
+   * the command on the device, so every request issued during a stall only
+   * queues for its own full timeout behind the stuck one — the reported
+   * "window/size 持续超时" is exactly that queue burning down. The cooldown
+   * turns it into "fail this one fast, retry shortly", and bounds the
+   * in-flight pile-up at the ONE request that already timed out.
+   * Default WDA_BUSY_COOLDOWN_MS.
+   */
+  busyCooldownMs?: number
+  /** @internal Test seam: monotonic clock (defaults to Date.now). */
+  now?: () => number
   maxBodyBytes?: number
   /** Invoked once for every successful WDA HTTP response (2xx, parsed).
    * The controller wires its traffic-liveness hook here — the single place
@@ -313,6 +344,34 @@ const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000
 const KEEP_ALIVE_TICK_MS = 1_000
 const STOP_TIMEOUT_MS = 10_000
 const REQUEST_TIMEOUT_MS = 30_000
+/**
+ * Timeout for the cheap session-scoped GETs (window/size, orientation).
+ * A healthy device answers them in 210–370 ms; 5 s already absorbs a busy
+ * moment yet fails six times faster than the general budget when WDA's
+ * serial dispatcher is stuck behind a slow screenshot/tree walk (the exact
+ * shape of "video playback makes WDA slow"). Failing fast means the next
+ * caller is not parked for 30 s only to queue another doomed request.
+ */
+export const WDA_FAST_TIMEOUT_MS = 5_000
+/**
+ * How long new requests are rejected after one request times out. The timed
+ * out command keeps executing on the device (destroying our socket does not
+ * cancel it), so anything sent during the cooldown would only queue behind
+ * it and burn its own timeout. Shorter than the control budget, longer than
+ * one normal command: one stalled command gets a chance to drain before the
+ * next caller tries.
+ */
+export const WDA_BUSY_COOLDOWN_MS = 10_000
+/**
+ * How long a freshly read active-app point size is reused across ALL
+ * callers — the UI tools read the same value as the panel's gesture
+ * mapping, and each read is a session-scoped round trip that a busy WDA
+ * cannot serve. Invalidated on setOrientation and session recreation;
+ * bounds staleness across a foreground-app switch (the one change this
+ * cache cannot observe) while shrinking the stall-period call volume —
+ * every call skipped is one less request queued behind a stuck command.
+ */
+export const WDA_WINDOW_SIZE_CACHE_TTL_MS = 3_000
 /** Delay before the single retry of a transport-reset GET (~250 ms). */
 const TRANSIENT_RETRY_DELAY_MS = 250
 const PROBE_TIMEOUT_MS = 2_000
@@ -756,6 +815,16 @@ export function isTransientWdaTransportError(error: unknown): boolean {
     || /\bEPIPE\b/i.test(text)
 }
 
+/**
+ * True when an error is the busy fast-fail the client answers during its
+ * post-timeout cooldown: the device is answering too slowly, so new requests
+ * are refused at once instead of queueing behind the stuck command. Callers
+ * surface it as "the device is busy — retry shortly" rather than a hang.
+ */
+export function isWdaBusyError(error: unknown): boolean {
+  return /\[wda-busy\]/i.test(errorMessage(error))
+}
+
 /** Idempotent GETs — retried once on a transport reset. POSTs are excluded
  * because a retried tap/drag/type would double-fire. `getOrientation` is a
  * GET too but deliberately left out: it is cheap and never blocks the queue
@@ -769,6 +838,18 @@ function isIdempotentWdaGet(method: string, path: string): boolean {
 }
 
 /**
+ * The cheap session-scoped GETs whose answer never needs the full 30 s
+ * budget: they cost 210–370 ms on a healthy device, so the only way they
+ * come close to the general timeout is a dispatcher stuck behind a slow
+ * command (video playback is the observed case). They get
+ * {@link WdaClientOptions.shortTimeoutMs} so a busy device fails them fast
+ * instead of parking their callers for half a minute each.
+ */
+function isFastWdaPath(method: string, path: string): boolean {
+  return method === 'GET' && (path.endsWith('/window/size') || path.endsWith('/orientation'))
+}
+
+/**
  * HTTP client for one running WDA instance (through the USB tunnel).
  * Owns the session: created lazily on first use, reused across calls, and
  * recreated exactly once when a call hits a 404 / `invalid session` error.
@@ -778,11 +859,18 @@ export class WdaClient {
   #options: Required<WdaClientOptions>
   #sessionId: string | undefined
   #sessionPromise: Promise<string> | undefined
+  /** Clock time until which new requests fail fast with a busy error. */
+  #busyUntil = 0
+  /** Cached active-app point size (windowSize); dropped on rotation/session. */
+  #sizeCache: { size: { width: number; height: number }; at: number } | undefined
 
   constructor(controlUrl: string, options: WdaClientOptions = {}) {
     this.controlUrl = controlUrl.replace(/\/+$/, '')
     this.#options = {
       requestTimeoutMs: options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS,
+      shortTimeoutMs: options.shortTimeoutMs ?? WDA_FAST_TIMEOUT_MS,
+      busyCooldownMs: options.busyCooldownMs ?? WDA_BUSY_COOLDOWN_MS,
+      now: options.now ?? Date.now,
       maxBodyBytes: options.maxBodyBytes ?? MAX_BODY_BYTES,
       onSuccess: options.onSuccess ?? (() => {}),
     }
@@ -795,6 +883,7 @@ export class WdaClient {
   /** Drop the cached session so the next call recreates it. */
   invalidateSession(): void {
     this.#sessionId = undefined
+    this.#sizeCache = undefined
   }
 
   /** `GET /status` health view. */
@@ -929,10 +1018,23 @@ export class WdaClient {
   async setOrientation(orientation: string): Promise<void> {
     if (typeof orientation !== 'string' || orientation === '') throw new TypeError('dsh-ios: setOrientation requires an orientation name')
     await this.#withSession('POST', '/orientation', { orientation })
+    // Width and height just swapped: never hand a pre-rotation size out.
+    this.#sizeCache = undefined
   }
 
-  /** `GET /window/size` → active app size in POINTS (the gesture space). */
+  /**
+   * `GET /window/size` → active app size in POINTS (the gesture space).
+   * Reused across callers for {@link WDA_WINDOW_SIZE_CACHE_TTL_MS}: the value
+   * only changes on rotation (invalidated here and by setOrientation) or a
+   * foreground-app switch (bounded by the TTL), and each skipped round trip
+   * is one less request queued behind a stuck command while the device is
+   * busy (video playback is the observed worst case).
+   */
   async windowSize(): Promise<{ width: number; height: number }> {
+    const cached = this.#sizeCache
+    if (cached !== undefined && this.#options.now() - cached.at < WDA_WINDOW_SIZE_CACHE_TTL_MS) {
+      return cached.size
+    }
     const value = await this.#withSession<unknown>('GET', '/window/size')
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
       throw new WdaHttpError('WDA /window/size returned an invalid value', undefined, undefined, value)
@@ -943,7 +1045,9 @@ export class WdaClient {
     if (typeof width !== 'number' || typeof height !== 'number' || width <= 0 || height <= 0) {
       throw new WdaHttpError('WDA /window/size returned an invalid size', undefined, undefined, value)
     }
-    return { width, height }
+    const size = { width, height }
+    this.#sizeCache = { size, at: this.#options.now() }
+    return size
   }
 
   async #createSession(): Promise<string> {
@@ -960,6 +1064,8 @@ export class WdaClient {
       throw new WdaHttpError('WDA created a session without a sessionId', undefined, JSON.stringify(doc), value)
     }
     this.#sessionId = sid
+    // A fresh session may serve a different device state: re-read the size.
+    this.#sizeCache = undefined
     return sid
   }
 
@@ -1001,25 +1107,52 @@ export class WdaClient {
   }
 
   /**
-   * Retry a transport reset (ECONNRESET / socket hang up / EPIPE) exactly
-   * once, and only for idempotent GETs: WDA drops connections under load and
-   * serves requests serially, so a dropped snapshot/screenshot read is not a
-   * real failure. POSTs are never retried (a retried tap taps twice).
+   * The busy gate plus the single transport-reset retry. While the cooldown
+   * after a timeout lasts, EVERY request fails fast with a busy error: WDA
+   * serves requests serially and a client-side timeout does not cancel the
+   * command on the device, so anything sent now would only queue behind the
+   * stuck command and burn its own timeout (the reported timeout cascade).
+   * The gate bounds that pile-up at the one request that already timed out.
+   *
+   * A transport reset (ECONNRESET / socket hang up / EPIPE) is then retried
+   * exactly once, and only for idempotent GETs: WDA drops connections under
+   * load, so a dropped snapshot/screenshot read is not a real failure. POSTs
+   * are never retried (a retried tap taps twice).
    */
   async #raw(method: string, path: string, body?: unknown): Promise<unknown> {
+    if (this.#options.now() < this.#busyUntil) {
+      throw new WdaHttpError(
+        'WDA ' + method + ' ' + path + ' rejected while the device is busy: a recent request timed out and its command is still draining on the device — retry shortly [wda-busy]',
+        undefined,
+        undefined,
+        undefined,
+      )
+    }
+    const timeoutMs = isFastWdaPath(method, path)
+      ? this.#options.shortTimeoutMs
+      : this.#options.requestTimeoutMs
     try {
-      return await this.#rawOnce(method, path, body)
+      return await this.#rawOnce(method, path, body, timeoutMs)
     } catch (error) {
       if (!isIdempotentWdaGet(method, path) || !isTransientWdaTransportError(error)) throw error
       await sleep(TRANSIENT_RETRY_DELAY_MS)
-      return this.#rawOnce(method, path, body)
+      return this.#rawOnce(method, path, body, timeoutMs)
     }
   }
 
-  #rawOnce(method: string, path: string, body?: unknown): Promise<unknown> {
+  #rawOnce(method: string, path: string, body: unknown | undefined, timeoutMs: number): Promise<unknown> {
     const url = `${this.controlUrl}${path}`
     return new Promise((resolve, reject) => {
       let settled = false
+      const failWith = (error: unknown): void => {
+        // A timeout means the device is busy: arm the cooldown so the next
+        // callers fail fast instead of queueing behind the stuck command.
+        // Other failures (reset, refused, HTTP errors) are not a busy signal.
+        if (error instanceof WdaHttpError && /timed out after/i.test(error.message)) {
+          this.#busyUntil = this.#options.now() + this.#options.busyCooldownMs
+        }
+        reject(error)
+      }
       const finish = (done: () => void): void => {
         if (settled) return
         settled = true
@@ -1029,7 +1162,7 @@ export class WdaClient {
       const payload = body === undefined ? undefined : JSON.stringify(body)
       const req = httpRequest(url, {
         method,
-        timeout: this.#options.requestTimeoutMs,
+        timeout: timeoutMs,
         ...(payload === undefined
           ? {}
           : { headers: { 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(payload)) } }),
@@ -1040,7 +1173,7 @@ export class WdaClient {
           total += chunk.length
           if (total > this.#options.maxBodyBytes) {
             res.destroy()
-            finish(() => reject(new WdaHttpError(
+            finish(() => failWith(new WdaHttpError(
               `WDA ${method} ${path} response exceeded ${this.#options.maxBodyBytes} bytes`,
               res.statusCode,
               undefined,
@@ -1051,7 +1184,7 @@ export class WdaClient {
           chunks.push(chunk)
         })
         res.on('error', error => {
-          finish(() => reject(new WdaHttpError(
+          finish(() => failWith(new WdaHttpError(
             `WDA ${method} ${path} connection error: ${errorMessage(error)}`,
             res.statusCode,
             undefined,
@@ -1071,7 +1204,7 @@ export class WdaClient {
             const detail = typeof value === 'object' && value !== null
               ? `${String((value as Record<string, unknown>).error ?? '')}${(value as Record<string, unknown>).message === undefined ? '' : ` — ${(value as Record<string, unknown>).message}`}`.trim()
               : text.slice(0, 400)
-            finish(() => reject(new WdaHttpError(
+            finish(() => failWith(new WdaHttpError(
               `WDA ${method} ${path} returned HTTP ${res.statusCode}${detail === '' ? '' : `: ${detail}`}`,
               res.statusCode,
               text,
@@ -1089,16 +1222,16 @@ export class WdaClient {
         })
       })
       req.on('error', error => {
-        finish(() => reject(new WdaHttpError(`WDA ${method} ${path} request failed: ${errorMessage(error)}`, undefined, undefined, undefined)))
+        finish(() => failWith(new WdaHttpError(`WDA ${method} ${path} request failed: ${errorMessage(error)}`, undefined, undefined, undefined)))
       })
       req.on('timeout', () => {
         req.destroy()
-        finish(() => reject(new WdaHttpError(`WDA ${method} ${path} timed out after ${this.#options.requestTimeoutMs} ms`, undefined, undefined, undefined)))
+        finish(() => failWith(new WdaHttpError(`WDA ${method} ${path} timed out after ${timeoutMs} ms`, undefined, undefined, undefined)))
       })
       const timer = setTimeout(() => {
         req.destroy()
-        finish(() => reject(new WdaHttpError(`WDA ${method} ${path} timed out after ${this.#options.requestTimeoutMs} ms`, undefined, undefined, undefined)))
-      }, this.#options.requestTimeoutMs)
+        finish(() => failWith(new WdaHttpError(`WDA ${method} ${path} timed out after ${timeoutMs} ms`, undefined, undefined, undefined)))
+      }, timeoutMs)
       timer.unref?.()
       if (payload !== undefined) req.write(payload)
       req.end()

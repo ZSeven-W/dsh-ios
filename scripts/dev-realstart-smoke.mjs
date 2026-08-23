@@ -141,7 +141,7 @@ function createMiniWebServer() {
  * test settles; `status()` reflects the injected state so the route's
  * classification paths are deterministic with no phone involved.
  */
-function makeMockWda() {
+function makeMockWda(overrides = {}) {
   const state = {
     available: true,
     running: false,
@@ -155,6 +155,8 @@ function makeMockWda() {
     ensureCalls: [],
     pending: [],
     stopCalls: 0,
+    acquires: 0,
+    releases: 0,
   }
   const noop = async () => {}
   return {
@@ -175,19 +177,24 @@ function makeMockWda() {
         ...(state.adopted === undefined ? {} : { adopted: state.adopted }),
         // A running controller always advertises its video URL; the mint's
         // tunnel probe is what decides whether it actually forwards.
-        ...(state.running ? { mjpegUrl: 'http://127.0.0.1:9100/' } : {}),
-        consumers: 0,
+        ...(state.running ? { mjpegUrl: overrides.mjpegUrl ?? 'http://127.0.0.1:9100/' } : {}),
+        consumers: state.acquires - state.releases,
       }
     },
     async stop() {
       state.stopCalls += 1
     },
     acquire() {
-      return () => {}
+      state.acquires += 1
+      return () => {
+        state.releases += 1
+      }
     },
-    release() {},
+    release() {
+      state.releases += 1
+    },
     get mjpegUrl() {
-      return state.running ? 'http://127.0.0.1:9100/' : undefined
+      return state.running ? overrides.mjpegUrl ?? 'http://127.0.0.1:9100/' : undefined
     },
     control: {
       pressButton: noop,
@@ -550,6 +557,73 @@ try {
   step('the device-action route only accepts POST', actionWrongMethod.status === 405, `HTTP ${actionWrongMethod.status}`)
   wda.__state.running = false
   wda.__state.device = undefined
+
+  // ── 7e. a stalled MJPEG stream is killed by the proxy watchdog ─────────────
+  // The issue-2 freeze: the device (video playback) stops producing MJPEG
+  // frames while the connection stays open. Piping that through unchanged
+  // froze the panel on the last frame forever — a stalled multipart response
+  // never fires the img error path that would trigger the panel's re-grant.
+  // The proxy watchdog now destroys the upstream after streamStallTimeoutMs
+  // of silence, so the browser sees a truncated response and the panel's
+  // retryOnce re-grants (and the not-ready surface takes over if the device
+  // is still stalled).
+  const stallServer = http.createServer((req, res) => {
+    res.on('error', () => {})
+    res.writeHead(200, { 'content-type': 'multipart/x-mixed-replace; boundary=frame' })
+    res.write('--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 4\r\n\r\ndata')
+    // …then nothing: the device stopped producing frames.
+  })
+  servers.push(stallServer)
+  await new Promise(resolveListen => stallServer.listen(0, '127.0.0.1', resolveListen))
+  const stallPort = stallServer.address().port
+  const stallWda = makeMockWda({ mjpegUrl: `http://127.0.0.1:${stallPort}/` })
+  stallWda.__state.device = UDID
+  stallWda.__state.running = true
+  const stallRoutes = new StreamRoutes(simHost, new StreamAccessController(), stallWda, { streamStallTimeoutMs: 400 })
+  const stallMini = createMiniWebServer()
+  const stallDispose = mountStreamRoutes(stallMini, stallRoutes)
+  servers.push(stallMini.server)
+  await new Promise(resolveListen => stallMini.server.listen(0, '127.0.0.1', resolveListen))
+  const stallOrigin = `http://127.0.0.1:${stallMini.server.address().port}`
+  const stallGrant = await postRoute(stallOrigin, GRANT_ROUTE_PATH, JSON.stringify({ kind: 'real-stream', device: UDID }), { origin: stallOrigin })
+  const stallGrantBody = await stallGrant.json().catch(() => ({}))
+  step(
+    'a stall-test stream capability mints normally',
+    stallGrant.status === 200 && typeof stallGrantBody.streamUrl === 'string',
+    `HTTP ${stallGrant.status}`,
+  )
+  const streamStart = Date.now()
+  let streamEnded = false
+  const abortGuard = new AbortController()
+  const abortTimer = setTimeout(() => abortGuard.abort(), 10_000)
+  try {
+    const stallResponse = await fetch(`${stallOrigin}${stallGrantBody.streamUrl}`, { signal: abortGuard.signal })
+    const reader = stallResponse.body.getReader()
+    for (;;) {
+      const read = await reader.read()
+      if (read.done) break
+    }
+    streamEnded = true
+  } catch {
+    // A destroyed mid-multipart response ends the read either cleanly or
+    // with a transport error; both mean the proxy tore the stream down.
+    streamEnded = true
+  } finally {
+    clearTimeout(abortTimer)
+  }
+  const streamElapsed = Date.now() - streamStart
+  step(
+    'the stall watchdog kills the silent stream (no frames → proxy teardown)',
+    streamEnded && streamElapsed >= 300 && streamElapsed < 3_000,
+    `stream ended after ${streamElapsed} ms (stall budget 400 ms)`,
+  )
+  step(
+    'the killed stream releases the consumer refcount',
+    stallWda.__state.acquires === 1 && stallWda.__state.releases === 1,
+    `acquires=${stallWda.__state.acquires} releases=${stallWda.__state.releases}`,
+  )
+  stallDispose()
+  stallRoutes.dispose()
 
   // ── 8. disposal unregisters the route and clears the registry ─────────────
   disposeRoutes()

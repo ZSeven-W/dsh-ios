@@ -41,6 +41,16 @@
  * always read from the final pointer event. `simRealGestureActionOf` encodes
  * the coalescing decision so the smoke asserts it without a browser.
  *
+ * POST QUEUEING (the same bounded philosophy one level up): the gesture
+ * POSTs go through `createSimRealControlRelay`, which keeps ONE request in
+ * flight and ONE queued (newest gesture wins). WDA serves requests serially,
+ * so concurrent POSTs could only queue on the device; while it is busy
+ * (video playback), an unguarded click storm stacked two requests per click
+ * behind the stuck command and each burned its own timeout — the "持续超时"
+ * freeze this issue reports. The relay bounds that to 1+1, and the host-side
+ * busy cooldown plus the stall watchdog (see wda-host.ts / stream-routes.ts)
+ * finish the story.
+ *
  * COORDINATE SPACE: the WDA MJPEG frame is PORTRAIT-sized regardless of the
  * device orientation (the XCTest screenshot buffer is native-orientation,
  * verified against the live device: 1206×2622 while PORTRAIT) — exactly the
@@ -68,6 +78,7 @@ import {
   simRouteErrorTextOf,
   type SimFetcher,
   type SimPoint,
+  type SimRealControlAction,
   type SimRealDeviceStatus,
 } from './protocol.js'
 
@@ -104,6 +115,55 @@ export const SIM_REAL_START_TERMINAL_REASONS: ReadonlySet<string> = new Set([
   'wda-not-ready',
   'unavailable',
 ])
+
+/**
+ * POST-queueing relay for pointer gestures against the REST-only WDA control
+ * surface. WDA serves requests serially, so concurrent gesture POSTs would
+ * only queue on the device — and while it is busy (video playback makes
+ * every call take its full host-side timeout), a click storm used to stack
+ * two requests per click behind the stuck command, each burning its own
+ * timeout ("window/size 持续超时"). The relay bounds that to ONE request in
+ * flight plus ONE queued — the newest gesture wins the slot, which is the
+ * one the user most recently intended. Failures stay non-fatal and never
+ * break the chain. Exported so the smoke drives it without a browser.
+ */
+export interface SimRealControlRelay {
+  submit(action: SimRealControlAction): void
+  /** Settled when every submitted action has finished (smoke seam). */
+  readonly settled: Promise<unknown>
+}
+
+/** One in flight + one queued (latest wins); failures never break the chain. */
+export function createSimRealControlRelay(
+  send: (action: SimRealControlAction) => Promise<unknown>,
+): SimRealControlRelay {
+  let pending: SimRealControlAction | undefined
+  let tail: Promise<unknown> = Promise.resolve()
+  let draining = false
+  const pump = (): void => {
+    const action = pending
+    pending = undefined
+    if (action === undefined) {
+      draining = false
+      return
+    }
+    tail = tail
+      .then(() => send(action))
+      .then(() => { pump() }, () => { pump() })
+  }
+  return {
+    submit(action) {
+      pending = action
+      if (!draining) {
+        draining = true
+        pump()
+      }
+    },
+    get settled() {
+      return tail
+    },
+  }
+}
 
 export type SimRealSessionPhase = 'checking' | 'starting' | 'granting' | 'live' | 'not-ready'
 
@@ -170,6 +230,8 @@ export function useSimRealSession(options: SimRealSessionOptions): SimRealSessio
    * poll phase (also the double-click guard). */
   const startingRef = useRef(false)
   const imgRef = useRef<HTMLImageElement>(null)
+  /** Serializes pointer-gesture control POSTs (one in flight + one queued). */
+  const controlRelayRef = useRef<SimRealControlRelay>()
   const pointerRef = useRef<{ id: number; start: SimPoint; latest: SimPoint; startAt: number; sampledAt: number }>()
   const orientationRef = useRef<string>()
   const liveRef = useRef(onLiveChange)
@@ -386,6 +448,25 @@ export function useSimRealSession(options: SimRealSessionOptions): SimRealSessio
     })
   }, [udid, fetcher, adoptOrientation])
 
+  /**
+   * Build (and rebuild on device change) the gesture relay: the one funnel
+   * for tap/drag POSTs. Shares the direct-control policy — success adopts
+   * the reported orientation, failures stay silent (the img error path
+   * re-checks status when the stream itself dies).
+   */
+  useEffect(() => {
+    controlRelayRef.current = undefined
+    if (udid === undefined || udid === '') return
+    const relay = createSimRealControlRelay(async action => {
+      const result = await postRealControl(fetcher ?? fetch, udid, action)
+      if (result.ok) adoptOrientation(result.result.orientation)
+    })
+    controlRelayRef.current = relay
+    return () => {
+      controlRelayRef.current = undefined
+    }
+  }, [udid, fetcher, adoptOrientation])
+
   const sendHome = useCallback((): void => {
     control({ kind: 'button', name: 'home' })
   }, [control])
@@ -454,7 +535,13 @@ export function useSimRealSession(options: SimRealSessionOptions): SimRealSessio
     const final = pointOf(event)
     const end = Number.isFinite(final.x) && Number.isFinite(final.y) ? final : active.latest
     const action = simRealGestureActionOf(active.start, end, Date.now() - active.startAt)
-    control(action)
+    // Through the relay: at most one gesture POST in flight, the newest
+    // gesture queued — a click storm on a stalled device no longer stacks
+    // two WDA requests per click behind the stuck command. (Direct fallback
+    // only before the relay effect has run; user gestures always come after.)
+    const relay = controlRelayRef.current
+    if (relay === undefined) control(action)
+    else relay.submit(action)
   }
 
   return {

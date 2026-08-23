@@ -4074,6 +4074,53 @@ try {
     `durationMs=${longGesture.durationMs} move sample=${client.SIM_REAL_DRAG_MOVE_SAMPLE_MS}ms`,
   )
 
+  // ── POST-queueing relay: one in flight + one queued, newest wins ──────────
+  // WDA serves requests serially, so a click storm on a stalled device (video
+  // playback) used to stack two requests per click behind the stuck command.
+  // The relay bounds that to 1 in flight + 1 queued; failures never break it.
+  {
+    const settleTick = () => new Promise(resolveSettle => setTimeout(resolveSettle, 10))
+    const sent = []
+    const gates = []
+    const relay = client.createSimRealControlRelay(action => new Promise((resolveSend, rejectSend) => {
+      sent.push(action)
+      gates.push({ resolve: resolveSend, reject: rejectSend })
+    }))
+    relay.submit({ kind: 'tap', x: 0.1, y: 0.1 })
+    relay.submit({ kind: 'tap', x: 0.2, y: 0.2 })
+    relay.submit({ kind: 'drag', fromX: 0.3, fromY: 0.3, toX: 0.9, toY: 0.9, durationMs: 200 })
+    // The first send leaves on the chain's microtask, after this tick.
+    await settleTick()
+    step(
+      'the relay keeps ONE request in flight while the queue holds the NEWEST gesture',
+      sent.length === 1 && sent[0].kind === 'tap' && sent[0].x === 0.1,
+      `sent=${JSON.stringify(sent)}`,
+    )
+    gates[0].resolve()
+    await settleTick()
+    step(
+      'when the first settles, only the newest queued gesture goes out (the middle one was replaced)',
+      sent.length === 2 && sent[1].kind === 'drag' && sent[1].fromX === 0.3 && sent[1].toX === 0.9,
+      `sent=${JSON.stringify(sent)}`,
+    )
+    gates[1].reject(new Error('route refused the gesture'))
+    await settleTick()
+    relay.submit({ kind: 'tap', x: 0.5, y: 0.5 })
+    await settleTick()
+    step(
+      'a failed send never breaks the relay (the next gesture still goes out)',
+      sent.length === 3 && sent[2].kind === 'tap' && sent[2].x === 0.5,
+      `sent=${JSON.stringify(sent)}`,
+    )
+    gates[2].resolve()
+    await relay.settled
+    step(
+      'the relay settles once every submitted gesture has finished',
+      sent.length === 3,
+      `sent=${sent.length}`,
+    )
+  }
+
   // ── request helpers through mocked fetchers ───────────────────────────────
   let realGrantCall
   const realGrantFetcher = async (input, init) => {

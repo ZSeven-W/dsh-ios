@@ -43,7 +43,10 @@
  *   CORS never forwarded. The WDA port is never exposed to the browser. A
  *   `sim-real-stream` capability only proxies a device whose WDA is ALREADY
  *   running — this route never spawns xcodebuild (start WDA via /real-start
- *   first).
+ *   first). The REAL-device proxy carries a stall watchdog: after
+ *   `STREAM_STALL_TIMEOUT_MS` without an upstream byte the proxy destroys
+ *   the stream, so a device that stops producing frames (video playback)
+ *   surfaces as an img error + re-grant instead of a frozen last frame.
  * - `POST /real-control`      — loopback/trusted-only JSON endpoint carrying
  *   `{ device, action }` where action is tap/drag (NORMALIZED 0..1 panel
  *   coordinates — passed straight to `StreamSource.control`), button, type
@@ -138,6 +141,19 @@ export const REAL_START_ROUTE_PATH = `${PLUGIN_ROUTE_PREFIX}/real-start`
 
 /** Hard capability lifetime (spec: tokens expire within 10 minutes). */
 export const TOKEN_TTL_MS = 10 * 60 * 1000
+
+/**
+ * How long a proxied MJPEG stream may go without a single upstream byte
+ * before the proxy destroys it. A busy device (video playback) can stop
+ * producing frames while the connection stays open — the browser then shows
+ * a FROZEN last frame forever, because a stalled multipart response never
+ * fires the img error path that would trigger the panel's re-grant. Killing
+ * the upstream turns the stall into a visible error → one automatic
+ * re-grant → (if the device recovered) a live stream again, and the
+ * not-ready surface with its slow background re-check otherwise. WDA's MJPEG
+ * emits ~2 frames/s, so 8 s ≈ 16 missed frames before we act.
+ */
+export const STREAM_STALL_TIMEOUT_MS = 8_000
 
 const KEY_BYTES = 32
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
@@ -808,6 +824,14 @@ export interface StreamRouteMount {
   }): () => void
 }
 
+/** Tunables for {@link StreamRoutes}. */
+export interface StreamRoutesOptions {
+  /** Idle byte budget for a proxied MJPEG stream before the proxy kills it
+   * (default {@link STREAM_STALL_TIMEOUT_MS}); the smoke drives a tiny value
+   * so the watchdog path runs in a fraction of a second. */
+  streamStallTimeoutMs?: number
+}
+
 /**
  * Owns the plugin's signed routes: verifies capabilities, proxies the
  * serve-sim stream and control channel, and tracks every open response or
@@ -815,6 +839,8 @@ export interface StreamRouteMount {
  */
 export class StreamRoutes {
   #disposed = false
+  /** Proxied MJPEG streams die after this long without upstream bytes. */
+  readonly #streamStallTimeoutMs: number
   readonly #streamTeardowns = new Set<() => void>()
   readonly #wsTeardowns = new Set<() => void>()
   /** Real-device control surface (normalized 0..1 panel coordinates). */
@@ -838,7 +864,12 @@ export class StreamRoutes {
     readonly simHost: SimHostController,
     readonly access: StreamAccessController,
     readonly wda?: WdaRouteHost,
+    options: StreamRoutesOptions = {},
   ) {
+    this.#streamStallTimeoutMs = options.streamStallTimeoutMs ?? STREAM_STALL_TIMEOUT_MS
+    if (!Number.isFinite(this.#streamStallTimeoutMs) || this.#streamStallTimeoutMs <= 0) {
+      throw new RangeError('dsh-ios: streamStallTimeoutMs must be a positive number')
+    }
     this.#realSource = wda === undefined ? undefined : new WdaStreamSource(wda)
     this.#simSource = new SimStreamSource(simHost)
   }
@@ -926,7 +957,11 @@ export class StreamRoutes {
         res.destroy()
         return
       }
-      this.#proxyStream(mjpegUrl, res, release)
+      // The WDA MJPEG is the one stream whose stall we watch: a busy device
+      // stops producing frames while the connection stays open. serve-sim's
+      // cadence is its own contract and the sim session already watches its
+      // control ws, so the sim proxy stays unwatched.
+      this.#proxyStream(mjpegUrl, res, release, this.#streamStallTimeoutMs)
     } catch (error) {
       this.#answerError(res, error)
     }
@@ -2003,20 +2038,42 @@ export class StreamRoutes {
    * or the WDA MJPEG tunnel) and pipe the multipart body through unchanged.
    * The upstream request is destroyed and the consumer refcount released on
    * client disconnect OR upstream end.
+   *
+   * Optional stall watchdog (`stallTimeoutMs`; armed by the real-device
+   * proxy): a busy device (video playback) stops producing MJPEG frames
+   * while the connection stays open. Piping that through unchanged would
+   * freeze the panel on the last frame FOREVER — a stalled multipart
+   * response never fires the img error path that triggers the panel's
+   * re-grant. So the proxy tracks the last upstream byte and destroys the
+   * stream after {@link STREAM_STALL_TIMEOUT_MS} of silence; the browser
+   * then sees a truncated response, fires img error, and the panel's
+   * retryOnce re-grants (falling to the not-ready surface, whose slow
+   * background re-check takes over when the device recovers).
    */
-  #proxyStream(streamUrl: string, res: ServerResponse, release: () => void): void {
+  #proxyStream(streamUrl: string, res: ServerResponse, release: () => void, stallTimeoutMs?: number): void {
+    const stallMs = stallTimeoutMs
     const state: {
       upstream?: ReturnType<typeof httpGet>
       closed: boolean
     } = { closed: false }
+    let lastDataAt = Date.now()
     const teardown = (): void => {
       if (state.closed) return
       state.closed = true
+      if (watchdog !== undefined) clearInterval(watchdog)
       this.#streamTeardowns.delete(teardown)
       state.upstream?.destroy()
       if (!res.writableEnded) res.destroy()
       release()
     }
+    // Half the stall budget between checks: a stream that dies right after a
+    // check is caught at worst 1.5× the budget late, and the interval stays
+    // cheap (2 checks/s against the default 8 s budget). Absent for the
+    // serve-sim proxy, whose frame cadence is its own contract.
+    const watchdog = stallMs === undefined ? undefined : setInterval(() => {
+      if (Date.now() - lastDataAt >= stallMs) teardown()
+    }, Math.max(200, Math.floor(stallMs / 2)))
+    watchdog?.unref?.()
     this.#streamTeardowns.add(teardown)
     res.on('error', teardown)
     res.on('close', () => {
@@ -2029,6 +2086,7 @@ export class StreamRoutes {
     state.upstream = upstream
     upstream.on('error', teardown)
     upstream.on('response', response => {
+      lastDataAt = Date.now()
       if (state.closed) {
         response.destroy()
         return
@@ -2054,6 +2112,7 @@ export class StreamRoutes {
       // fence. Everything the browser sees must stay same-origin.
       if (typeof response.headers['content-length'] === 'string') headers['content-length'] = response.headers['content-length']
       res.writeHead(200, headers)
+      response.on('data', () => { lastDataAt = Date.now() })
       response.on('error', teardown)
       // Pipe straight through: no buffering, no re-chunking of the multipart body.
       response.pipe(res, { end: true })

@@ -66,7 +66,10 @@ const {
   ADOPTED_PROBE_INTERVAL_MS,
   ADOPTED_PROBE_TIMEOUT_MS,
   ADOPTED_TRAFFIC_GRACE_MS,
+  WDA_BUSY_COOLDOWN_MS,
   WDA_DEFAULT_SNAPSHOT_DEPTH,
+  WDA_FAST_TIMEOUT_MS,
+  WDA_WINDOW_SIZE_CACHE_TTL_MS,
   WdaClient,
   WdaController,
   WdaError,
@@ -76,6 +79,7 @@ const {
   classifyWdaFailure,
   isInvalidSessionError,
   isTransientWdaTransportError,
+  isWdaBusyError,
   parseServerUrlHere,
   pickTunnelPort,
   probeWdaControlTunnel,
@@ -84,6 +88,7 @@ const {
 } = await import(join(root, 'lib', 'wda-host.js'))
 const {
   SimStreamSource,
+  WDA_WINDOW_SIZE_STALE_TAP_MS,
   WDA_WINDOW_SIZE_TTL_MS,
   WdaStreamSource,
   pngDimensionsFromBase64,
@@ -139,10 +144,14 @@ function startMockWda(port = 0) {
       invalidOnce: false,
       failNextTap: false,
       screenshotDelayMs: 0,
+      windowSizeDelayMs: 0,
       resetOnce: null,
       requests: [],
     }
     const server = createServer((req, res) => {
+      // A client that timed out destroys its socket; the mock's later write
+      // to that socket must not throw an unhandled 'error' event.
+      res.on('error', () => {})
       const url = new URL(req.url ?? '/', 'http://127.0.0.1')
       const chunks = []
       req.on('data', chunk => chunks.push(chunk))
@@ -215,7 +224,20 @@ function startMockWda(port = 0) {
             return
           }
           if (req.method === 'GET' && rest === '/window/size') {
-            send(200, { value: { width: 1206, height: 2622 } })
+            if (state.windowSizeDelayMs > 0) {
+              // Simulate the device's serial dispatcher being stuck (video
+              // playback): the answer arrives long after the client's FAST
+              // window/size budget.
+              setTimeout(() => {
+                try {
+                  send(200, { value: { width: 1206, height: 2622 } })
+                } catch {
+                  // The client already gave up and destroyed the socket.
+                }
+              }, state.windowSizeDelayMs)
+            } else {
+              send(200, { value: { width: 1206, height: 2622 } })
+            }
             return
           }
           send(200, { value: null, sessionId: sid })
@@ -279,12 +301,17 @@ function makeMockSimHost() {
 /** Mock WdaControllerLike — WdaStreamSource normalizes through windowSize(). */
 function makeMockWda() {
   const calls = []
+  let windowSizeError
   const record = name => (...args) => {
     calls.push([name, ...args])
     return Promise.resolve()
   }
   return {
     calls,
+    /** Make the next windowSize() reads throw (a busy WDA timing out). */
+    setWindowSizeError(error) {
+      windowSizeError = error
+    },
     mjpegUrl: 'http://127.0.0.1:9100/',
     async ensureRunning({ udid }) {
       calls.push(['ensureRunning', udid])
@@ -321,6 +348,7 @@ function makeMockWda() {
       },
       async windowSize() {
         calls.push(['windowSize'])
+        if (windowSizeError !== undefined) throw windowSizeError
         return { width: 1206, height: 2622 }
       },
     },
@@ -657,6 +685,148 @@ console.log('')
     )
   } finally {
     await resetMock.close()
+  }
+}
+
+// ── 6b2. Busy-device hardening: fast window/size, busy cooldown, size cache ─
+// The issue-2 shape: the device plays video, WDA's serial dispatcher sticks
+// behind a slow command, and every new call (each panel tap re-asks
+// window/size) queues behind it for its own full timeout — "window/size
+// 持续超时". The fix has three parts, all driven here without a device:
+// the cheap GETs fail FAST, one timeout arms a busy cooldown during which
+// new calls fail fast instead of queueing, and the size is cached across
+// callers with rotation/session invalidation.
+{
+  step(
+    'busy-hardening constants are sane (fast < 30 s budget, cooldown > 0, cache TTL > 0)',
+    WDA_FAST_TIMEOUT_MS > 0 && WDA_FAST_TIMEOUT_MS < 30_000
+      && WDA_BUSY_COOLDOWN_MS > 0
+      && WDA_WINDOW_SIZE_CACHE_TTL_MS > 0,
+    `fast=${WDA_FAST_TIMEOUT_MS} cooldown=${WDA_BUSY_COOLDOWN_MS} cacheTTL=${WDA_WINDOW_SIZE_CACHE_TTL_MS}`,
+  )
+  step(
+    'isWdaBusyError recognizes the busy marker and nothing else',
+    isWdaBusyError(new WdaHttpError('WDA GET /x rejected while the device is busy [wda-busy]', undefined, undefined, undefined))
+      && !isWdaBusyError(new WdaHttpError('WDA GET /x timed out after 30000 ms', undefined, undefined, undefined))
+      && !isWdaBusyError(new Error('nope')),
+  )
+
+  // 6b2-1: a stuck window/size fails in the FAST budget, not the 30 s one.
+  const slowMock = await startMockWda()
+  try {
+    slowMock.state.windowSizeDelayMs = 2_000
+    const slowClient = new WdaClient(`http://127.0.0.1:${slowMock.port}`, {
+      requestTimeoutMs: 30_000,
+      shortTimeoutMs: 300,
+      busyCooldownMs: 5_000,
+    })
+    const startedAt = Date.now()
+    await expectThrow(
+      'window/size uses the FAST timeout (fails in ~300 ms, before the 2 s answer, not after the 30 s budget)',
+      () => slowClient.windowSize(),
+      /timed out after 300 ms/,
+      WdaHttpError,
+    )
+    step(
+      'the fast failure really was fast',
+      Date.now() - startedAt < 1_500,
+      `${Date.now() - startedAt} ms (answer arrives at 2000 ms, general budget 30000 ms)`,
+    )
+    // The same timed-out client now refuses new calls while the cooldown
+    // lasts — fail fast instead of queueing behind the stuck command.
+    const busyStart = Date.now()
+    let busyError
+    try {
+      await slowClient.health()
+    } catch (error) {
+      busyError = error
+    }
+    step(
+      'one timeout arms the busy cooldown: the next call fails fast with the marker',
+      busyError instanceof WdaHttpError && isWdaBusyError(busyError) && Date.now() - busyStart < 500,
+      `${Date.now() - busyStart} ms — ${busyError?.message}`,
+    )
+    // After the cooldown the client tries again and succeeds (the mock now
+    // answers instantly), proving the gate is a delay, not a wedge.
+    slowMock.state.windowSizeDelayMs = 0
+    await sleep(5_100)
+    const recovered = await slowClient.windowSize()
+    step(
+      'after the cooldown expires the SAME client tries again and succeeds',
+      recovered.width === 1206 && recovered.height === 2622,
+      `${recovered.width}x${recovered.height}`,
+    )
+  } finally {
+    await slowMock.close()
+  }
+
+  // 6b2-2: a transport reset is NOT a busy signal — the retry succeeds and
+  // no cooldown blocks the next call.
+  {
+    const resetMock = await startMockWda()
+    try {
+      const resetClient = new WdaClient(`http://127.0.0.1:${resetMock.port}`, {
+        requestTimeoutMs: 5_000,
+        busyCooldownMs: 5_000,
+      })
+      resetMock.state.resetOnce = { method: 'GET', path: '/source' }
+      await resetClient.source()
+      const health = await resetClient.health()
+      step(
+        'a transport reset does NOT arm the busy cooldown (the retry path stays unblocked)',
+        health.ready === true,
+        'health() right after the reset+retry answered normally',
+      )
+    } finally {
+      await resetMock.close()
+    }
+  }
+
+  // 6b2-3: the shared window-size cache: one GET serves repeated reads,
+  // rotation and session recreation invalidate it.
+  {
+    const cacheMock = await startMockWda()
+    try {
+      let cacheNow = 0
+      const cacheClient = new WdaClient(`http://127.0.0.1:${cacheMock.port}`, {
+        requestTimeoutMs: 5_000,
+        now: () => cacheNow,
+      })
+      const sizeGets = () => cacheMock.state.requests.filter(r => r.method === 'GET' && r.path.endsWith('/window/size')).length
+      const first = await cacheClient.windowSize()
+      const second = await cacheClient.windowSize()
+      step(
+        'the size is cached across callers (two reads, one GET)',
+        sizeGets() === 1 && second.width === first.width,
+        `GETs=${sizeGets()}`,
+      )
+      cacheNow = WDA_WINDOW_SIZE_CACHE_TTL_MS + 1
+      await cacheClient.windowSize()
+      step(
+        'the cache expires after the TTL (the third read re-asks)',
+        sizeGets() === 2,
+        `GETs=${sizeGets()}`,
+      )
+      await cacheClient.setOrientation('LANDSCAPE')
+      await cacheClient.windowSize()
+      step(
+        'setOrientation drops the cache (width and height just swapped)',
+        sizeGets() === 3,
+        `GETs=${sizeGets()}`,
+      )
+      // Expire the cache first: the invalid-session path is only walked
+      // when a fresh GET actually goes out and hits the 404.
+      cacheNow = WDA_WINDOW_SIZE_CACHE_TTL_MS * 2 + 1
+      cacheMock.state.invalidOnce = true
+      await cacheClient.windowSize()
+      step(
+        'session recreation drops the cache too (invalid session → recreate → retry)',
+        sizeGets() === 5 && cacheClient.sessionId === 'mock-sid-2',
+        `GETs=${sizeGets()} session=${cacheClient.sessionId}`,
+      )
+    } finally {
+      await cacheMock.close()
+    }
   }
 }
 
@@ -1567,6 +1737,44 @@ process.exit(1)
     'the cache window is short enough that a human cannot rotate and tap inside it',
     WDA_WINDOW_SIZE_TTL_MS > 0 && WDA_WINDOW_SIZE_TTL_MS <= 2000,
     `WDA_WINDOW_SIZE_TTL_MS=${WDA_WINDOW_SIZE_TTL_MS}`,
+  )
+}
+
+// ── 12b. A failed size refresh falls back to the recent cached size ────────
+// The issue-2 stall shape: WDA times out the size read (or the busy gate
+// refuses it), yet the point space has not changed — rotation goes through
+// our own rotate() and drops the cache. A recent cached size keeps gestures
+// working through the stall; an OLD one (a possible foreground-app switch)
+// fails the gesture fast instead of silently tapping in the wrong space.
+{
+  step(
+    'the stale-fallback window is wider than the cache TTL but short',
+    WDA_WINDOW_SIZE_STALE_TAP_MS > WDA_WINDOW_SIZE_TTL_MS && WDA_WINDOW_SIZE_STALE_TAP_MS <= 10_000,
+    `TTL=${WDA_WINDOW_SIZE_TTL_MS} stale=${WDA_WINDOW_SIZE_STALE_TAP_MS}`,
+  )
+  const staleWda = makeMockWda()
+  const staleSource = new WdaStreamSource(staleWda)
+  await staleSource.control.tap(0.5, 0.5) // primes the cache with a fresh read
+  await sleep(WDA_WINDOW_SIZE_TTL_MS + 60) // cache expired, still recent
+  staleWda.setWindowSizeError(new Error('WDA GET /session/sid-9/window/size timed out after 5000 ms'))
+  await staleSource.control.tap(0.25, 0.75)
+  const staleTaps = staleWda.calls.filter(call => call[0] === 'tap')
+  step(
+    'a failed size refresh falls back to the recent cached size (the gesture still lands)',
+    staleTaps.length === 2 && staleTaps[1][1] === 302 && staleTaps[1][2] === 1967,
+    `taps=${staleTaps.map(call => `${call[1]},${call[2]}`).join(' | ')}`,
+  )
+  await sleep(WDA_WINDOW_SIZE_STALE_TAP_MS - WDA_WINDOW_SIZE_TTL_MS + 200)
+  let staleError
+  try {
+    await staleSource.control.tap(0.5, 0.5)
+  } catch (error) {
+    staleError = error
+  }
+  step(
+    'an OLD stale size does not silently mis-tap: the gesture fails fast instead',
+    staleError !== undefined && /timed out after/i.test(String(staleError?.message ?? '')),
+    String(staleError?.message ?? 'no error thrown'),
   )
 }
 

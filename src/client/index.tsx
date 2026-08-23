@@ -68,11 +68,13 @@ export {
 export { useSimStream, SIM_SWITCH_SETTLE_INTERVAL_MS, SIM_SWITCH_SETTLE_ATTEMPTS, type SimSeededGrant, type SimStreamPhase, type SimStreamSession } from './sim-stream-session.js'
 export {
   useSimRealSession,
+  createSimRealControlRelay,
   SIM_REAL_DRAG_MOVE_SAMPLE_MS,
   SIM_REAL_READY_RECHECK_INTERVAL_MS,
   SIM_REAL_START_POLL_INTERVAL_MS,
   SIM_REAL_START_POLL_CAP_MS,
   SIM_REAL_START_TERMINAL_REASONS,
+  type SimRealControlRelay,
   type SimRealSession,
   type SimRealSessionOptions,
   type SimRealSessionPhase,
