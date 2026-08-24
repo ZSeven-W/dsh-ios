@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #0b0f10;
+        color: #f4f7f5;
+      }
+
+      @font-face {
+        font-family: "PingFang SC";
+        src: local("PingFang SC");
+      }
+
+      body {
+        font-family: "IBM Plex Mono", "PingFang SC", monospace;
+      }
+
+      .mono {
+        font-family: "IBM Plex Mono", monospace;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .full-scene {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+      }
+
+      .recording {
+        position: absolute;
+        inset: 0;
+        width: 1920px;
+        height: 1080px;
+        object-fit: contain;
+        background: #0b0f10;
+        will-change: transform, opacity, filter;
+      }
+
+      .grid {
+        position: absolute;
+        inset: 0;
+        opacity: 0.26;
+        background-image:
+          linear-gradient(rgba(91, 129, 127, 0.2) 1px, rgba(91, 129, 127, 0) 1px),
+          linear-gradient(90deg, rgba(91, 129, 127, 0.2) 1px, rgba(91, 129, 127, 0) 1px);
+        background-size: 120px 120px;
+      }
+
+      .edge-rule {
+        position: absolute;
+        left: 80px;
+        right: 80px;
+        bottom: 68px;
+        height: 2px;
+        background: #5b817f;
+        transform-origin: left center;
+      }
+
+      .intro-layout,
+      .outro-layout {
+        position: relative;
+        z-index: 2;
+        display: grid;
+        grid-template-columns: 1.25fr 0.75fr;
+        align-items: center;
+        width: 100%;
+        height: 100%;
+        padding: 112px 120px 108px;
+        gap: 86px;
+      }
+
+      .eyebrow {
+        color: #7dd8be;
+        font-size: 24px;
+        font-weight: 600;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+
+      .intro-title {
+        margin-top: 20px;
+        max-width: 1060px;
+        font-size: 132px;
+        font-weight: 800;
+        line-height: 0.94;
+        letter-spacing: -0.045em;
+        font-family: "Archivo Black", "PingFang SC", sans-serif;
+      }
+
+      .intro-subtitle {
+        margin-top: 34px;
+        max-width: 900px;
+        color: #b8c4c1;
+        font-size: 38px;
+        font-weight: 350;
+        line-height: 1.45;
+        font-family: "PingFang SC", "IBM Plex Mono", sans-serif;
+      }
+
+      .intro-meta {
+        display: flex;
+        gap: 24px;
+        margin-top: 50px;
+        color: #f4f7f5;
+        font-size: 19px;
+        letter-spacing: 0.08em;
+      }
+
+      .intro-meta span {
+        padding: 12px 18px;
+        border: 1px solid #5b817f;
+        border-radius: 999px;
+      }
+
+      .logo-stage {
+        position: relative;
+        display: grid;
+        place-items: center;
+        width: 100%;
+        aspect-ratio: 1;
+      }
+
+      .logo-stage::before {
+        content: "";
+        position: absolute;
+        inset: -42px;
+        border: 1px solid rgba(125, 216, 190, 0.38);
+        border-radius: 50%;
+      }
+
+      .logo-stage::after {
+        content: "";
+        position: absolute;
+        width: 118%;
+        height: 2px;
+        background: #5b817f;
+        transform: rotate(-12deg);
+      }
+
+      .logo {
+        position: relative;
+        z-index: 2;
+        width: 470px;
+        height: 470px;
+        object-fit: contain;
+        filter: drop-shadow(0 22px 54px rgba(0, 0, 0, 0.34));
+      }
+
+      .chapter-overlay {
+        position: absolute;
+        inset: 0;
+        z-index: 10;
+      }
+
+      .chapter-card {
+        position: absolute;
+        left: 320px;
+        top: 72px;
+        display: flex;
+        align-items: center;
+        gap: 22px;
+        min-width: 730px;
+        padding: 20px 26px;
+        border: 1px solid rgba(125, 216, 190, 0.48);
+        border-radius: 16px;
+        background: rgba(11, 15, 16, 0.91);
+      }
+
+      .chapter-index {
+        color: #7dd8be;
+        font-size: 24px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+      }
+
+      .chapter-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+      }
+
+      .chapter-name {
+        font-size: 30px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        font-family: "Archivo Black", "PingFang SC", sans-serif;
+      }
+
+      .chapter-desc {
+        color: #b8c4c1;
+        font-size: 19px;
+        font-weight: 350;
+        font-family: "PingFang SC", "IBM Plex Mono", sans-serif;
+      }
+
+      .chapter-rule {
+        position: absolute;
+        left: 320px;
+        top: 178px;
+        width: 730px;
+        height: 2px;
+        background: #5b817f;
+        transform-origin: left center;
+      }
+
+      .live-chip {
+        position: absolute;
+        top: 82px;
+        right: 100px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 20px;
+        border: 1px solid rgba(184, 196, 193, 0.36);
+        border-radius: 999px;
+        background: rgba(11, 15, 16, 0.9);
+        color: #f4f7f5;
+        font-size: 18px;
+        letter-spacing: 0.08em;
+      }
+
+      .live-dot {
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        background: #7dd8be;
+        box-shadow: 0 0 0 7px rgba(125, 216, 190, 0.15);
+      }
+
+      .speed-badge {
+        position: absolute;
+        left: 102px;
+        bottom: 68px;
+        z-index: 14;
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        padding: 13px 18px;
+        border: 1px solid #5b817f;
+        border-radius: 12px;
+        background: rgba(11, 15, 16, 0.93);
+        color: #f4f7f5;
+        font-size: 18px;
+      }
+
+      .speed-value {
+        color: #7dd8be;
+        font-size: 24px;
+        font-weight: 600;
+      }
+
+      .outro-layout {
+        grid-template-columns: 0.72fr 1.28fr;
+      }
+
+      .outro-copy {
+        max-width: 1040px;
+      }
+
+      .outro-title {
+        font-size: 98px;
+        font-weight: 800;
+        line-height: 1.02;
+        letter-spacing: -0.04em;
+        font-family: "Archivo Black", "PingFang SC", sans-serif;
+      }
+
+      .outro-subtitle {
+        margin-top: 30px;
+        color: #b8c4c1;
+        font-size: 34px;
+        font-weight: 350;
+        line-height: 1.45;
+        font-family: "PingFang SC", "IBM Plex Mono", sans-serif;
+      }
+
+      .package-name {
+        margin-top: 48px;
+        color: #7dd8be;
+        font-size: 25px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="dsh-ios-demo"
+      data-start="0"
+      data-duration="68"
+      data-width="1920"
+      data-height="1080"
+    >
+      <section id="intro" class="clip full-scene" data-start="0" data-duration="3.2" data-track-index="30">
+        <div class="grid" data-layout-ignore></div>
+        <div class="intro-layout">
+          <div>
+            <div id="intro-eyebrow" class="eyebrow mono">DeepSeek Harness Plugin</div>
+            <h1 id="intro-title" class="intro-title">DSH iOS</h1>
+            <p id="intro-subtitle" class="intro-subtitle">让智能体真正看见并操作 iOS</p>
+            <div id="intro-meta" class="intro-meta mono">
+              <span>SIMULATOR</span>
+              <span>PHYSICAL DEVICE</span>
+              <span>LIVE CONTROL</span>
+            </div>
+          </div>
+          <div id="intro-logo-stage" class="logo-stage" data-layout-ignore>
+            <img class="logo" src="assets/dsh-ios-logo-outro.png" alt="DSH iOS" />
+          </div>
+        </div>
+        <div id="intro-rule" class="edge-rule"></div>
+      </section>
+
+      <video id="sim-video" class="clip recording" data-start="2.7" data-duration="28.033" data-track-index="0" src="assets/simulator-edited.mp4" muted playsinline></video>
+
+      <div id="sim-overlay" class="clip chapter-overlay" data-start="2.7" data-duration="28.033" data-track-index="10">
+        <div id="sim-chapter-card" class="chapter-card">
+          <div class="chapter-index mono">01 / SIMULATOR</div>
+          <div class="chapter-copy">
+            <div class="chapter-name">对话里的实时 iOS 模拟器</div>
+            <div class="chapter-desc">启动设备、查看画面、驱动界面</div>
+          </div>
+        </div>
+        <div id="sim-chapter-rule" class="chapter-rule"></div>
+        <div id="sim-live-chip" class="live-chip mono"><span class="live-dot"></span>LIVE</div>
+      </div>
+
+      <div id="sim-speed" class="clip speed-badge mono" data-start="7.7" data-duration="16" data-track-index="14">
+        <span class="speed-value">4×</span><span>等待段已加速</span>
+      </div>
+
+      <video id="phone-video" class="clip recording" data-start="30.2" data-duration="33.833" data-track-index="1" src="assets/phone-edited.mp4" muted playsinline></video>
+
+      <div id="phone-overlay" class="clip chapter-overlay" data-start="30.2" data-duration="33.833" data-track-index="11">
+        <div id="phone-chapter-card" class="chapter-card">
+          <div class="chapter-index mono">02 / PHYSICAL DEVICE</div>
+          <div class="chapter-copy">
+            <div class="chapter-name">同一个面板，连接真实 iPhone</div>
+            <div class="chapter-desc">发现设备、读取界面、执行操作</div>
+          </div>
+        </div>
+        <div id="phone-chapter-rule" class="chapter-rule"></div>
+        <div id="phone-live-chip" class="live-chip mono"><span class="live-dot"></span>CONNECTED</div>
+      </div>
+
+      <div id="phone-speed" class="clip speed-badge mono" data-start="37.2" data-duration="20.889" data-track-index="15">
+        <span class="speed-value">4.5×</span><span>等待段已加速</span>
+      </div>
+
+      <section id="outro" class="clip full-scene" data-start="63.5" data-duration="4.5" data-track-index="31">
+        <div class="grid" data-layout-ignore></div>
+        <div class="outro-layout">
+          <div id="outro-logo-stage" class="logo-stage" data-layout-ignore>
+            <img class="logo" src="assets/dsh-ios-logo.png" alt="DSH iOS" />
+          </div>
+          <div class="outro-copy">
+            <div id="outro-eyebrow" class="eyebrow mono">SIMULATOR + PHYSICAL DEVICE</div>
+            <h2 id="outro-title" class="outro-title">一套插件，两类设备</h2>
+            <p id="outro-subtitle" class="outro-subtitle">在 DeepSeek Harness 对话里，实时查看并操作 iOS。</p>
+            <div id="package-name" class="package-name mono">@zseven-w/dsh-ios</div>
+          </div>
+        </div>
+        <div id="outro-rule" class="edge-rule"></div>
+      </section>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      tl.from("#intro-eyebrow", { x: -54, opacity: 0, duration: 0.38, ease: "expo.out" }, 0.18);
+      tl.from("#intro-title", { y: 64, opacity: 0, duration: 0.62, ease: "power4.out" }, 0.28);
+      tl.from("#intro-subtitle", { x: 46, opacity: 0, duration: 0.48, ease: "sine.out" }, 0.56);
+      tl.from("#intro-meta span", { scale: 0.86, opacity: 0, duration: 0.34, stagger: 0.1, ease: "back.out(1.5)" }, 0.78);
+      tl.from("#intro-logo-stage", { scale: 0.74, rotation: -7, opacity: 0, duration: 0.72, ease: "expo.out" }, 0.32);
+      tl.from("#intro-rule", { scaleX: 0, duration: 0.58, ease: "power3.out" }, 0.74);
+
+      tl.to("#intro", { filter: "blur(15px)", opacity: 0, duration: 0.5, ease: "power1.in" }, 2.7);
+      tl.fromTo("#sim-video", { filter: "blur(11px)", scale: 0.985, opacity: 0 }, { filter: "blur(0px)", scale: 1, opacity: 1, duration: 0.5, ease: "power3.out" }, 2.72);
+      tl.from("#sim-chapter-card", { x: -72, opacity: 0, duration: 0.42, ease: "expo.out" }, 2.92);
+      tl.from("#sim-chapter-rule", { scaleX: 0, duration: 0.56, ease: "power4.out" }, 3.04);
+      tl.from("#sim-live-chip", { scale: 0.72, opacity: 0, duration: 0.34, ease: "back.out(1.7)" }, 3.16);
+      tl.from("#sim-speed", { y: 34, opacity: 0, duration: 0.3, ease: "power3.out" }, 7.82);
+
+      tl.to("#sim-video", { y: -1080, duration: 0.53, ease: "power3.inOut" }, 30.2);
+      tl.to("#sim-overlay", { y: -1080, duration: 0.53, ease: "power3.inOut" }, 30.2);
+      tl.fromTo("#phone-video", { y: 1080 }, { y: 0, duration: 0.53, ease: "power3.inOut" }, 30.2);
+      tl.from("#phone-chapter-card", { x: 78, opacity: 0, duration: 0.44, ease: "expo.out" }, 30.46);
+      tl.from("#phone-chapter-rule", { scaleX: 0, duration: 0.52, ease: "power4.out" }, 30.56);
+      tl.from("#phone-live-chip", { y: -32, opacity: 0, duration: 0.36, ease: "sine.out" }, 30.66);
+      tl.from("#phone-speed", { scale: 0.84, opacity: 0, duration: 0.32, ease: "back.out(1.4)" }, 37.32);
+
+      tl.to("#phone-video", { filter: "blur(15px)", opacity: 0, duration: 0.5, ease: "power1.in" }, 63.5);
+      tl.to("#phone-overlay", { filter: "blur(11px)", opacity: 0, duration: 0.5, ease: "power2.in" }, 63.5);
+      tl.fromTo("#outro", { filter: "blur(11px)", scale: 0.985, opacity: 0 }, { filter: "blur(0px)", scale: 1, opacity: 1, duration: 0.5, ease: "power3.out" }, 63.54);
+      tl.from("#outro-logo-stage", { scale: 0.7, rotation: 6, opacity: 0, duration: 0.66, ease: "expo.out" }, 63.72);
+      tl.from("#outro-eyebrow", { x: 52, opacity: 0, duration: 0.36, ease: "power4.out" }, 63.82);
+      tl.from("#outro-title", { y: 58, opacity: 0, duration: 0.54, ease: "back.out(1.25)" }, 63.98);
+      tl.from("#outro-subtitle", { x: -42, opacity: 0, duration: 0.44, ease: "sine.out" }, 64.22);
+      tl.from("#package-name", { x: 46, opacity: 0, duration: 0.52, ease: "power2.out" }, 64.44);
+      tl.from("#outro-rule", { scaleX: 0, duration: 0.58, ease: "expo.out" }, 64.18);
+      tl.to("#outro", { opacity: 0, duration: 0.55, ease: "power2.in" }, 67.42);
+
+      window.__timelines["dsh-ios-demo"] = tl;
+    </script>
+  </body>
+</html>
