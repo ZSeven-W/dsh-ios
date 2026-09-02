@@ -51,6 +51,7 @@ import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import type { Readable } from 'node:stream'
 import {
+  detectAppleDevelopmentIdentity,
   getRealDevice,
   requireAvailable,
   type RealDevice,
@@ -141,9 +142,9 @@ export interface WdaOptions {
   controlPortStart?: number
   /** First local port to try for the MJPEG tunnel (default 9100). */
   mjpegPortStart?: number
-  /** `DEVELOPMENT_TEAM` for automatic signing (default `5CHT5RB9C3`). */
+  /** `DEVELOPMENT_TEAM` for automatic signing; overrides `DSH_IOS_TEAM_ID`. */
   teamId?: string
-  /** `PRODUCT_BUNDLE_IDENTIFIER` for the runner (default `com.finiyang.WebDriverAgentRunner`). */
+  /** `PRODUCT_BUNDLE_IDENTIFIER` for the runner; overrides `DSH_IOS_WDA_BUNDLE_ID`. */
   bundleId?: string
   /** Minimum delay before an unintentional exit is restarted (default 5000 ms). */
   restartDelayMs?: number
@@ -330,6 +331,29 @@ const WDA_PROJECT = 'WebDriverAgent.xcodeproj'
 const WDA_SCHEME = 'WebDriverAgentRunner'
 const DEFAULT_TEAM_ID = '5CHT5RB9C3'
 const DEFAULT_BUNDLE_ID = 'com.finiyang.WebDriverAgentRunner'
+
+/** Source selected by `resolveWdaSetting` before identity discovery. */
+export type WdaSettingSource = 'option' | 'env' | 'default'
+
+/** One WDA setting after option, environment, and default precedence. */
+export interface WdaSettingResolution {
+  value: string
+  source: WdaSettingSource
+}
+
+/** Resolve one WDA setting with trimmed, non-empty option/env values first. */
+export function resolveWdaSetting(
+  optionValue: string | undefined,
+  envValue: string | undefined,
+  defaultValue: string,
+): WdaSettingResolution {
+  const option = optionValue?.trim() ?? ''
+  if (option !== '') return { value: option, source: 'option' }
+  const env = envValue?.trim() ?? ''
+  if (env !== '') return { value: env, source: 'env' }
+  return { value: defaultValue, source: 'default' }
+}
+
 /** First local port the control tunnel tries — also the port a probe checks
  * when adopting a WDA this controller did not start (see stream-routes). */
 export const CONTROL_PORT_START = 8100
@@ -1247,7 +1271,7 @@ export class WdaClient {
  */
 export class WdaController {
   readonly tooling: WdaTooling
-  readonly #options: Required<WdaOptions>
+  readonly #options: Omit<Required<WdaOptions>, 'teamId'> & { teamId?: string }
   #runner: WdaRunner | undefined
   #tunnels: WdaTunnel[] = []
   #client: WdaClient | undefined
@@ -1267,6 +1291,9 @@ export class WdaController {
   #lastStopAt = 0
   #disposed = false
   #disposePromise: Promise<void> | undefined
+  /** Lazily resolved once, immediately before the first WDA runner build. */
+  #teamIdResolution: Promise<string> | undefined
+  #teamIdSource: WdaSettingSource | 'identity' | undefined
   #stderrRing: string[] = []
   #stderrPartial = ''
   /** Classified failure of the last attempt; cleared on readiness. */
@@ -1297,12 +1324,14 @@ export class WdaController {
 
   constructor(options: WdaOptions = {}) {
     this.tooling = resolveWdaTooling(options.wdaProjectDir ?? DEFAULT_WDA_PROJECT_DIR)
+    const team = resolveWdaSetting(options.teamId, process.env.DSH_IOS_TEAM_ID, DEFAULT_TEAM_ID)
+    const bundle = resolveWdaSetting(options.bundleId, process.env.DSH_IOS_WDA_BUNDLE_ID, DEFAULT_BUNDLE_ID)
     this.#options = {
       wdaProjectDir: options.wdaProjectDir ?? DEFAULT_WDA_PROJECT_DIR,
       controlPortStart: options.controlPortStart ?? CONTROL_PORT_START,
       mjpegPortStart: options.mjpegPortStart ?? MJPG_PORT_START,
-      teamId: options.teamId ?? DEFAULT_TEAM_ID,
-      bundleId: options.bundleId ?? DEFAULT_BUNDLE_ID,
+      teamId: team.source === 'default' ? undefined : team.value,
+      bundleId: bundle.value,
       restartDelayMs: options.restartDelayMs ?? DEFAULT_RESTART_DELAY_MS,
       idleTimeoutMs: options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS,
       startTimeoutMs: options.startTimeoutMs ?? DEFAULT_START_TIMEOUT_MS,
@@ -1314,6 +1343,7 @@ export class WdaController {
       makeUsbmuxForward: options.makeUsbmuxForward ?? defaultMakeUsbmuxForward,
       classifyTunnelFailure: options.classifyTunnelFailure ?? ((udid: string) => classifyUsbmuxTunnelFailure(udid)),
     }
+    this.#teamIdSource = team.source === 'default' ? undefined : team.source
     if (!Number.isSafeInteger(this.#options.controlPortStart) || this.#options.controlPortStart < 1024 || this.#options.controlPortStart > 65535) {
       throw new RangeError('dsh-ios: controlPortStart must be an integer between 1024 and 65535')
     }
@@ -1799,9 +1829,39 @@ export class WdaController {
     return false
   }
 
+  async #resolveTeamId(): Promise<string> {
+    const cached = this.#teamIdResolution
+    if (cached !== undefined) return cached
+    const resolving = (async () => {
+      if (this.#options.teamId !== undefined) {
+        this.#noteStderr(`WDA DEVELOPMENT_TEAM=${this.#options.teamId} (source: ${this.#teamIdSource ?? 'option'})`)
+        return this.#options.teamId
+      }
+      let teamId = DEFAULT_TEAM_ID
+      let source: WdaSettingSource | 'identity' = 'default'
+      try {
+        const identity = await detectAppleDevelopmentIdentity()
+        const detectedTeamId = identity?.teamId?.trim() ?? ''
+        if (detectedTeamId !== '') {
+          teamId = detectedTeamId
+          source = 'identity'
+        }
+      } catch (error) {
+        this.#noteStderr(`could not detect an Apple Development identity; using the default WDA team (${errorMessage(error)})`)
+      }
+      this.#options.teamId = teamId
+      this.#teamIdSource = source
+      this.#noteStderr(`WDA DEVELOPMENT_TEAM=${teamId} (source: ${source})`)
+      return teamId
+    })()
+    this.#teamIdResolution = resolving
+    return resolving
+  }
+
   async #spawnRunner(device: RealDevice, hardwareUdid: string): Promise<void> {
     this.#lockedSignatureSeen = false
-    const args = assembleXcodebuildTestArgs(hardwareUdid, { teamId: this.#options.teamId, bundleId: this.#options.bundleId })
+    const teamId = await this.#resolveTeamId()
+    const args = assembleXcodebuildTestArgs(hardwareUdid, { teamId, bundleId: this.#options.bundleId })
     const child = spawn(this.tooling.xcodebuildCommand!, [...this.tooling.xcodebuildPrefix, ...args], {
       cwd: this.#options.wdaProjectDir,
       stdio: ['ignore', 'pipe', 'pipe'],
