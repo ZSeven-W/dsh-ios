@@ -1553,7 +1553,7 @@ export function createSimTools(host: SimHostController, options: SimToolsOptions
       + 'directory for the iOS Simulator, install the built .app on the simulator, and launch it. '
       + 'Pass the udid of a USB-connected physical device (from ios_sim_devices.realDevices) to '
       + 'build, install, and launch on the real device instead: the build uses '
-      + '-destination "platform=iOS,id=<udid>", requires an Apple Development signing identity in '
+      + '-destination "platform=iOS,id=<hardware-udid>", requires an Apple Development signing identity in '
       + 'the login keychain (and a matching provisioning profile), and installs/launches via '
       + 'devicectl. On build failure the result contains the tail of the xcodebuild output with '
       + 'the actionable compiler errors. Takes minutes for a full build.',

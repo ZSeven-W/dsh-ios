@@ -56,8 +56,8 @@ const { createSimDebugTools } = await import(join(root, 'lib', 'tool-debug.js'))
 const { createSimLogTools } = await import(join(root, 'lib', 'tool-logs.js'))
 const { createSimUiTools } = await import(join(root, 'lib', 'tool-uitree.js'))
 const { createSimPreviewTools } = await import(join(root, 'lib', 'tool-preview.js'))
-const { WdaController, probeWdaControlTunnel } = await import(join(root, 'lib', 'wda-host.js'))
-const { assembleBuildArgs, buildRun, detectProject } = await import(join(root, 'lib', 'build-run.js'))
+const { WdaController, probeWdaControlTunnel, resolveWdaSetting } = await import(join(root, 'lib', 'wda-host.js'))
+const { assembleBuildArgs, buildRun, destinationIdFor, detectProject } = await import(join(root, 'lib', 'build-run.js'))
 
 const results = []
 let failed = 0
@@ -114,6 +114,53 @@ let installedBundleId
 
 console.log(`dsh-ios real-device smoke — target ${DEVICE_UDID} (expect "${EXPECTED_NAME}" / iOS ${EXPECTED_OS})`)
 console.log('')
+
+// ── Fixture-only regressions ────────────────────────────────────────────────
+{
+  const optionWins = resolveWdaSetting(' OPTION_TEAM ', 'ENV_TEAM', 'DEFAULT_TEAM')
+  const envWins = resolveWdaSetting(undefined, ' ENV_TEAM ', 'DEFAULT_TEAM')
+  const defaultWins = resolveWdaSetting(undefined, '   ', 'DEFAULT_TEAM')
+  step(
+    'WDA team-id precedence is option > env > default',
+    optionWins.value === 'OPTION_TEAM' && optionWins.source === 'option'
+      && envWins.value === 'ENV_TEAM' && envWins.source === 'env'
+      && defaultWins.value === 'DEFAULT_TEAM' && defaultWins.source === 'default',
+    `${optionWins.value}/${envWins.value}/${defaultWins.value}`,
+  )
+  const fakeCoreDeviceUdid = 'COREDEVICE-UUID'
+  const fakeHardwareUdid = '00008030-AAAA'
+  const fakeDevice = {
+    kind: 'device',
+    device: {
+      udid: fakeCoreDeviceUdid,
+      hardwareUdid: fakeHardwareUdid,
+      name: 'Fake iPhone',
+      state: 'available (paired)',
+      connection: 'wired',
+      pairingState: 'paired',
+      developerMode: 'enabled',
+    },
+  }
+  const destinationId = destinationIdFor(fakeDevice)
+  const dryArgs = assembleBuildArgs({
+    target: { kind: 'package', root: '/tmp/dsh-smoke', location: '/tmp/dsh-smoke' },
+    scheme: 'DshDeviceSmoke',
+    configuration: 'Debug',
+    udid: destinationId,
+    derivedDataPath: '/tmp/dsh-smoke-dd',
+    platform: 'device',
+    signing: { teamId: 'FAKE-TEAM' },
+  })
+  step(
+    'device build arg assembly targets hardware UDID, never CoreDevice UUID',
+    destinationId === fakeHardwareUdid
+      && dryArgs.includes('-destination') && dryArgs.includes(`platform=iOS,id=${fakeHardwareUdid}`)
+      && !dryArgs.includes(`platform=iOS,id=${fakeCoreDeviceUdid}`)
+      && dryArgs.includes('CODE_SIGN_STYLE=Automatic')
+      && dryArgs.includes('DEVELOPMENT_TEAM=FAKE-TEAM'),
+    dryArgs.join(' '),
+  )
+}
 
 try {
   // ── 1. list devices: correct name/os ──────────────────────────────────────
@@ -310,18 +357,19 @@ try {
   // ── 10. build_run real-device path ────────────────────────────────────────
   const tempDirs = []
   try {
+    const deviceDestinationId = device.hardwareUdid ?? device.udid
     const dryArgs = assembleBuildArgs({
       target: { kind: 'package', root: '/tmp/dsh-smoke', location: '/tmp/dsh-smoke' },
       scheme: 'DshDeviceSmoke',
       configuration: 'Debug',
-      udid: DEVICE_UDID,
+      udid: deviceDestinationId,
       derivedDataPath: '/tmp/dsh-smoke-dd',
       platform: 'device',
       signing: { teamId: signing?.teamId },
     })
     step(
-      'device build arg assembly: platform=iOS,id=<udid> + signing',
-      dryArgs.includes('-destination') && dryArgs.includes(`platform=iOS,id=${DEVICE_UDID}`)
+      'device build arg assembly: platform=iOS,id=<hardware-udid> + signing',
+      dryArgs.includes('-destination') && dryArgs.includes(`platform=iOS,id=${deviceDestinationId}`)
         && dryArgs.includes('CODE_SIGN_STYLE=Automatic')
         && (signing?.teamId === undefined || dryArgs.includes(`DEVELOPMENT_TEAM=${signing.teamId}`)),
       dryArgs.join(' '),
@@ -428,7 +476,9 @@ try {
     step('build_run real-device path', 'FAIL', error instanceof Error ? error.message : String(error))
   }
 } catch (error) {
-  step('smoke setup', 'FAIL', error instanceof Error ? error.message : String(error))
+  const message = error instanceof Error ? error.message : String(error)
+  const noReachableDevice = /device is not reachable by CoreDevice right now/i.test(message)
+  step('smoke setup', noReachableDevice ? 'SKIP' : 'FAIL', message)
 } finally {
   // Cleanup: only the in-memory controllers; nothing was booted, nothing was
   // installed beyond the (always removed) self-built app.

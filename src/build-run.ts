@@ -40,7 +40,7 @@ export interface BuildInvocation {
   /** xcodebuild scheme name; omitted means "let xcodebuild pick" (project/workspace only). */
   scheme?: string
   configuration: string
-  /** Destination udid (simulator udid or physical-device identifier). */
+  /** xcodebuild destination id: simulator udid, or physical-device hardware UDID. */
   udid: string
   /** `-derivedDataPath` value (plugin-owned cache). */
   derivedDataPath: string
@@ -63,6 +63,13 @@ export interface BuildInvocation {
 export type BuildDevice =
   | { kind: 'simulator'; device: SimulatorDevice }
   | { kind: 'device'; device: RealDevice }
+
+/** Return the id xcodebuild expects for a simulator or physical-device build. */
+export function destinationIdFor(device: BuildDevice): string {
+  return device.kind === 'device'
+    ? device.device.hardwareUdid ?? device.device.udid
+    : device.device.udid
+}
 
 /** Successful outcome of build + install + launch. */
 export interface BuildRunResult {
@@ -123,7 +130,7 @@ export function detectProject(projectPath: string): ProjectTarget {
 /**
  * Assemble the exact `xcodebuild` argument vector for the build. Simulator
  * builds target `platform=iOS Simulator,id=<udid>`; device builds target
- * `platform=iOS,id=<udid>` and append automatic code-signing settings
+ * `platform=iOS,id=<hardware-udid>` and append automatic code-signing settings
  * (CODE_SIGN_STYLE=Automatic + DEVELOPMENT_TEAM) when a signing team is
  * known. Exported for dry-run verification.
  */
@@ -342,22 +349,32 @@ export const DEVICE_SIGNING_HINT =
   + '(Xcode → Settings → Components).'
 
 /** Extra guidance appended to device-build failures. */
-function deviceFailureHint(lines: string[]): string {
+function deviceFailureHint(lines: string[], destinationId: string, scheme: string | undefined): string {
   const tail = lines.join('\n')
+  const developerDir = process.env.DEVELOPER_DIR?.trim()
+  const destinationHint = /Available destinations|Unable to find a destination/i.test(tail)
+    ? '\nxcodebuild was given '
+      + `id=${destinationId} (scheme ${scheme ?? '<auto>'}, `
+      + (developerDir === undefined || developerDir === '' ? 'DEVELOPER_DIR unset so the xcode-select default applies' : `DEVELOPER_DIR=${developerDir}`)
+      + ') and could not resolve it to a connected device. '
+      + 'The id must be the hardware UDID shown by `xcrun devicectl list devices` or `xcrun xctrace list devices`; '
+      + 'if it matches, compare the scheme and the Xcode this process uses (`xcode-select -p`) with your working shell command, '
+      + 'and make sure the device is unlocked, paired, and running an iOS version this Xcode supports.'
+    : ''
   if (/is not installed[\s\S]*Settings > Components|download and install the platform/i.test(tail)) {
     return '\nThe iOS platform matching the device\u2019s OS is not installed on this Mac — '
-      + 'install it via Xcode → Settings → Components, then retry.'
+      + 'install it via Xcode → Settings → Components, then retry.' + destinationHint
   }
   if (/provisioning profile|code signing|signing for|development team|requires a development team/i.test(tail)) {
-    return '\nCode-signing note: ' + DEVICE_SIGNING_HINT
+    return '\nCode-signing note: ' + DEVICE_SIGNING_HINT + destinationHint
   }
-  return ''
+  return destinationHint
 }
 
 /**
  * Full pipeline: build → find the app → install → launch. Simulator targets
  * route install/launch through simctl; physical devices build with
- * `-destination platform=iOS,id=<udid>`, require an Apple Development
+ * `-destination platform=iOS,id=<hardware-udid>`, require an Apple Development
  * signing identity (checked up front, with an actionable error when absent),
  * and install/launch through devicectl. Build failures throw with the
  * filtered xcodebuild tail plus, for device builds, a signing/platform hint.
@@ -376,13 +393,14 @@ export async function buildRun(options: BuildRunOptions): Promise<BuildRunResult
     signing = { ...(identity.teamId === undefined ? {} : { teamId: identity.teamId }) }
   }
   const udid = device.device.udid
+  const destinationId = destinationIdFor(device)
   const derivedDataPath = join(cacheDir, 'builds', projectSlug(target.location), 'DerivedData')
   const scheme = await resolveScheme(target, options.scheme, signal)
   const invocation: BuildInvocation = {
     target,
     scheme,
     configuration,
-    udid,
+    udid: destinationId,
     derivedDataPath,
     platform,
     signing,
@@ -392,7 +410,7 @@ export async function buildRun(options: BuildRunOptions): Promise<BuildRunResult
   if (exitCode !== 0) {
     throw new Error(
       `xcodebuild failed (exit ${String(exitCode)}) for ${normalize(target.location)}:\n${buildFailureDetail(lines)}`
-      + (platform === 'device' ? deviceFailureHint(lines) : ''),
+      + (platform === 'device' ? deviceFailureHint(lines, destinationId, scheme) : ''),
     )
   }
   const appPath = findBuiltApp(derivedDataPath, configuration, scheme, platform === 'device' ? 'iphoneos' : 'iphonesimulator')
