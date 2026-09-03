@@ -19,6 +19,7 @@ import {
   detectAppleDevelopmentIdentity,
   installApp as installAppOnDevice,
   launchApp as launchAppOnDevice,
+  resolveSigningTeam,
   type RealDevice,
 } from './devicectl.js'
 
@@ -47,11 +48,10 @@ export interface BuildInvocation {
   /** Build platform; defaults to 'simulator' for backwards compatibility. */
   platform?: 'simulator' | 'device'
   /**
-   * Device builds only: automatic-signing settings derived from the login
-   * keychain's Apple Development identity. `-allowProvisioningUpdates` is
-   * deliberately NOT passed — provisioning-profile creation is an Xcode
-   * account operation; existing local profiles are used as-is and the
-   * failure hint explains the signing requirements when none match.
+   * Device builds only: automatic-signing settings selected from the Xcode
+   * account teams and login-keychain Apple Development identities. Device
+   * builds also pass `-allowProvisioningUpdates` so Xcode can register the
+   * device or mint a profile for the selected account team.
    */
   signing?: { teamId?: string }
 }
@@ -130,9 +130,10 @@ export function detectProject(projectPath: string): ProjectTarget {
 /**
  * Assemble the exact `xcodebuild` argument vector for the build. Simulator
  * builds target `platform=iOS Simulator,id=<udid>`; device builds target
- * `platform=iOS,id=<hardware-udid>` and append automatic code-signing settings
- * (CODE_SIGN_STYLE=Automatic + DEVELOPMENT_TEAM) when a signing team is
- * known. Exported for dry-run verification.
+ * `platform=iOS,id=<hardware-udid>`, append automatic code-signing settings
+ * (including `-allowProvisioningUpdates` and `DEVELOPMENT_TEAM`) for device
+ * builds, and never add those device-only arguments to simulator builds.
+ * Exported for dry-run verification.
  */
 export function assembleBuildArgs(invocation: BuildInvocation): string[] {
   const { target, configuration, udid, derivedDataPath } = invocation
@@ -147,7 +148,7 @@ export function assembleBuildArgs(invocation: BuildInvocation): string[] {
     '-derivedDataPath', derivedDataPath,
   )
   if (platform === 'device') {
-    args.push('CODE_SIGN_STYLE=Automatic')
+    args.push('-allowProvisioningUpdates', 'CODE_SIGN_STYLE=Automatic')
     if (invocation.signing?.teamId !== undefined) {
       args.push(`DEVELOPMENT_TEAM=${invocation.signing.teamId}`)
     }
@@ -343,9 +344,9 @@ export const DEVICE_SIGNING_HINT =
   'building and installing on a physical iPhone requires code signing with an "Apple Development" '
   + 'certificate in the login keychain (security find-identity -v -p codesigning). '
   + 'With an identity present, xcodebuild automatic signing (CODE_SIGN_STYLE=Automatic + DEVELOPMENT_TEAM) '
-  + 'uses the provisioning profiles already installed on this Mac; when none covers the app, create one '
-  + 'in Xcode (Signing & Capabilities) or run the build with -allowProvisioningUpdates once (requires an '
-  + 'authenticated Apple ID session). Also install the iOS platform matching the device\u2019s OS version '
+  + 'uses the Xcode account team selected by dsh-ios and can register the device or create a profile '
+  + 'with -allowProvisioningUpdates (requires an authenticated Apple ID session). Also install the iOS '
+  + 'platform matching the device\u2019s OS version '
   + '(Xcode → Settings → Components).'
 
 /** Extra guidance appended to device-build failures. */
@@ -390,7 +391,13 @@ export async function buildRun(options: BuildRunOptions): Promise<BuildRunResult
         `ios_sim_build_run: no valid Apple Development signing identity was found in the login keychain — ${DEVICE_SIGNING_HINT}`,
       )
     }
-    signing = { ...(identity.teamId === undefined ? {} : { teamId: identity.teamId }) }
+    const resolved = await resolveSigningTeam({
+      env: process.env.DSH_IOS_TEAM_ID,
+      fallback: undefined,
+      signal,
+    })
+    const teamId = resolved.teamId ?? identity.teamId
+    signing = teamId === undefined ? {} : { teamId }
   }
   const udid = device.device.udid
   const destinationId = destinationIdFor(device)
