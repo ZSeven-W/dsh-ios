@@ -51,9 +51,9 @@ import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import type { Readable } from 'node:stream'
 import {
-  detectAppleDevelopmentIdentity,
   getRealDevice,
   requireAvailable,
+  resolveSigningTeam,
   type RealDevice,
 } from './devicectl.js'
 import { pngDimensionsFromBase64, type StreamScreenshot } from './stream-source.js'
@@ -1293,7 +1293,7 @@ export class WdaController {
   #disposePromise: Promise<void> | undefined
   /** Lazily resolved once, immediately before the first WDA runner build. */
   #teamIdResolution: Promise<string> | undefined
-  #teamIdSource: WdaSettingSource | 'identity' | undefined
+  #teamIdSource: WdaSettingSource | undefined
   #stderrRing: string[] = []
   #stderrPartial = ''
   /** Classified failure of the last attempt; cleared on readiness. */
@@ -1324,8 +1324,8 @@ export class WdaController {
 
   constructor(options: WdaOptions = {}) {
     this.tooling = resolveWdaTooling(options.wdaProjectDir ?? DEFAULT_WDA_PROJECT_DIR)
-    const team = resolveWdaSetting(options.teamId, process.env.DSH_IOS_TEAM_ID, DEFAULT_TEAM_ID)
     const bundle = resolveWdaSetting(options.bundleId, process.env.DSH_IOS_WDA_BUNDLE_ID, DEFAULT_BUNDLE_ID)
+    const team = resolveWdaSetting(options.teamId, undefined, DEFAULT_TEAM_ID)
     this.#options = {
       wdaProjectDir: options.wdaProjectDir ?? DEFAULT_WDA_PROJECT_DIR,
       controlPortStart: options.controlPortStart ?? CONTROL_PORT_START,
@@ -1833,25 +1833,19 @@ export class WdaController {
     const cached = this.#teamIdResolution
     if (cached !== undefined) return cached
     const resolving = (async () => {
-      if (this.#options.teamId !== undefined) {
-        this.#noteStderr(`WDA DEVELOPMENT_TEAM=${this.#options.teamId} (source: ${this.#teamIdSource ?? 'option'})`)
-        return this.#options.teamId
-      }
-      let teamId = DEFAULT_TEAM_ID
-      let source: WdaSettingSource | 'identity' = 'default'
-      try {
-        const identity = await detectAppleDevelopmentIdentity()
-        const detectedTeamId = identity?.teamId?.trim() ?? ''
-        if (detectedTeamId !== '') {
-          teamId = detectedTeamId
-          source = 'identity'
-        }
-      } catch (error) {
-        this.#noteStderr(`could not detect an Apple Development identity; using the default WDA team (${errorMessage(error)})`)
-      }
+      const resolution = await resolveSigningTeam({
+        explicit: this.#teamIdSource === 'option' || this.#teamIdSource === 'env'
+          ? this.#options.teamId
+          : undefined,
+        env: process.env.DSH_IOS_TEAM_ID,
+        fallback: DEFAULT_TEAM_ID,
+      })
+      const teamId = resolution.teamId ?? DEFAULT_TEAM_ID
       this.#options.teamId = teamId
-      this.#teamIdSource = source
-      this.#noteStderr(`WDA DEVELOPMENT_TEAM=${teamId} (source: ${source})`)
+      this.#teamIdSource = resolution.source === 'option' || resolution.source === 'env'
+        ? resolution.source
+        : undefined
+      this.#noteStderr(`WDA DEVELOPMENT_TEAM=${teamId} (source: ${resolution.source}) ${resolution.detail}`)
       return teamId
     })()
     this.#teamIdResolution = resolving

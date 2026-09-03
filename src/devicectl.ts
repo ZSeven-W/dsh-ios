@@ -26,7 +26,7 @@
 
 import { execFile, spawn, type ChildProcessByStdio } from 'node:child_process'
 import { readFileSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Readable } from 'node:stream'
 
@@ -122,6 +122,41 @@ export interface SigningIdentity {
   teamId?: string
 }
 
+/** One team Xcode can provision for, as listed in `IDEProvisioningTeams`. */
+export interface XcodeProvisioningTeam {
+  teamId: string
+  teamName?: string
+  teamType?: string
+  isFree: boolean
+  /** Apple ID account key that owns this Xcode team entry. */
+  account: string
+}
+
+/** Sources considered by the shared signing-team resolver. */
+export type SigningTeamSource =
+  | 'option'
+  | 'env'
+  | 'xcode-account'
+  | 'identity'
+  | 'default'
+  | 'none'
+
+/** Resolved signing team and the evidence used to select it. */
+export interface SigningTeamResolution {
+  teamId?: string
+  source: SigningTeamSource
+  detail: string
+}
+
+interface ChooseSigningTeamOptions {
+  explicit?: string
+  env?: string
+  xcodeTeams?: readonly XcodeProvisioningTeam[]
+  identities?: readonly SigningIdentity[]
+  fallback?: string
+  detectorErrors?: readonly string[]
+}
+
 /** Error raised when a `xcrun devicectl` invocation fails. */
 export class DevicectlError extends Error {
   constructor(
@@ -145,6 +180,7 @@ const TERMINATE_TIMEOUT_MS = 30_000
 const INSTALL_TIMEOUT_MS = 180_000
 const UNINSTALL_TIMEOUT_MS = 60_000
 const SECURITY_TIMEOUT_MS = 30_000
+const PLUTIL_TIMEOUT_MS = 30_000
 /** SIGTERM → SIGKILL grace when reaping a stuck devicectl process group. */
 const KILL_GRACE_MS = 2_000
 /** Raw stdout/stderr capture cap per child (tail kept). */
@@ -923,40 +959,263 @@ export async function uninstallApp(udid: string, bundleId: string, signal?: Abor
   )
 }
 
-/**
- * Look up an Apple Development signing identity in the login keychain
- * (`security find-identity -v -p codesigning`). Returns undefined when no
- * valid Apple Development identity exists — the callers then refuse
- * device-install flows and explain the code-signing requirements instead.
- */
-export async function detectAppleDevelopmentIdentity(signal?: AbortSignal): Promise<SigningIdentity | undefined> {
-  const stdout = await new Promise<string>((resolve, reject) => {
+function runSecurityFindIdentity(signal?: AbortSignal): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
     execFile('security', ['find-identity', '-v', '-p', 'codesigning'], {
       timeout: SECURITY_TIMEOUT_MS,
       maxBuffer: 1024 * 1024,
       signal,
-    }, (error, out, stderr) => {
+    }, (error, stdout, stderr) => {
       if (error !== null) {
         reject(new DevicectlError(
           `security find-identity failed${stderr.trim() === '' ? '' : `: ${stderr.trim()}`}`,
           stderr,
-          out,
+          stdout,
           error.code,
         ))
         return
       }
-      resolve(out)
+      resolve(stdout)
     })
   })
+}
+
+function parseAppleDevelopmentIdentities(stdout: string): SigningIdentity[] {
   const pattern = /^\s*\d+\)\s+([0-9A-Fa-f]{40})\s+"(Apple Development(?:[^"]*))"/gmu
+  const identities: SigningIdentity[] = []
   for (const match of stdout.matchAll(pattern)) {
     const identity = match[2].trim()
     const teamMatch = /\(([0-9A-Z]{10})\)\s*$/u.exec(identity)
-    return {
+    identities.push({
       hash: match[1],
       name: identity,
       ...(teamMatch === null ? {} : { teamId: teamMatch[1] }),
+    })
+  }
+  return identities
+}
+
+/**
+ * Look up every Apple Development signing identity in the login keychain
+ * (`security find-identity -v -p codesigning`). Throws when the security
+ * command itself fails; an empty result means no valid identity exists.
+ */
+export async function detectAppleDevelopmentIdentities(signal?: AbortSignal): Promise<SigningIdentity[]> {
+  return parseAppleDevelopmentIdentities(await runSecurityFindIdentity(signal))
+}
+
+/**
+ * Look up the first Apple Development signing identity in the login keychain.
+ * This preserves the historical singular detector behavior for callers that
+ * only need to know whether any valid identity exists.
+ */
+export async function detectAppleDevelopmentIdentity(signal?: AbortSignal): Promise<SigningIdentity | undefined> {
+  return (await detectAppleDevelopmentIdentities(signal))[0]
+}
+
+/**
+ * Read the teams Xcode can provision for from `IDEProvisioningTeams` in its
+ * preferences. Missing preferences, a missing key, command failures, and
+ * malformed JSON all mean that no Xcode teams are known.
+ */
+export async function detectXcodeProvisioningTeams(signal?: AbortSignal): Promise<XcodeProvisioningTeam[]> {
+  let stdout: string
+  try {
+    stdout = await new Promise<string>((resolve, reject) => {
+      execFile('plutil', [
+        '-extract', 'IDEProvisioningTeams', 'json', '-o', '-',
+        join(homedir(), 'Library', 'Preferences', 'com.apple.dt.Xcode.plist'),
+      ], {
+        timeout: PLUTIL_TIMEOUT_MS,
+        maxBuffer: 4 * 1024 * 1024,
+        signal,
+      }, (error, out, stderr) => {
+        if (error !== null) {
+          reject(new DevicectlError(
+            `plutil IDEProvisioningTeams failed${stderr.trim() === '' ? '' : `: ${stderr.trim()}`}`,
+            stderr,
+            out,
+            error.code,
+          ))
+          return
+        }
+        resolve(out)
+      })
+    })
+  } catch {
+    return []
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(stdout)
+  } catch {
+    return []
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return []
+
+  const teams: XcodeProvisioningTeam[] = []
+  const seen = new Set<string>()
+  for (const [account, entries] of Object.entries(parsed)) {
+    if (!Array.isArray(entries)) continue
+    for (const entry of entries) {
+      if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) continue
+      const record = entry as Record<string, unknown>
+      const teamId = readStringField(record, 'teamID')?.trim()
+      if (teamId === undefined || seen.has(teamId)) continue
+      seen.add(teamId)
+      const teamName = readStringField(record, 'teamName')?.trim()
+      const teamType = readStringField(record, 'teamType')?.trim()
+      teams.push({
+        teamId,
+        ...(teamName === undefined ? {} : { teamName }),
+        ...(teamType === undefined ? {} : { teamType }),
+        isFree: record.isFreeProvisioningTeam === true,
+        account,
+      })
     }
   }
-  return undefined
+  return teams
+}
+
+function appendDetectorErrors(detail: string, detectorErrors: readonly string[] | undefined): string {
+  if (detectorErrors === undefined || detectorErrors.length === 0) return detail
+  return `${detail}; ${detectorErrors.join('; ')}`
+}
+
+function xcodeTeamLabel(team: XcodeProvisioningTeam): string {
+  return team.teamName?.trim() || team.teamId
+}
+
+/**
+ * Select a signing team from already gathered inputs. This is pure so the
+ * precedence and real-world multi-team regression can be tested without macOS
+ * keychain or Xcode preference access.
+ */
+export function chooseSigningTeam(options: ChooseSigningTeamOptions): SigningTeamResolution {
+  const explicit = options.explicit?.trim() ?? ''
+  if (explicit !== '') {
+    return {
+      teamId: explicit,
+      source: 'option',
+      detail: appendDetectorErrors('explicit signing-team option', options.detectorErrors),
+    }
+  }
+
+  const env = options.env?.trim() ?? ''
+  if (env !== '') {
+    return {
+      teamId: env,
+      source: 'env',
+      detail: appendDetectorErrors('DSH_IOS_TEAM_ID environment override', options.detectorErrors),
+    }
+  }
+
+  const xcodeTeams = (options.xcodeTeams ?? []).filter(team => team.teamId.trim() !== '')
+  const identities = options.identities ?? []
+  const identityTeamIds = new Set(
+    identities
+      .map(identity => identity.teamId?.trim().toUpperCase())
+      .filter((teamId): teamId is string => teamId !== undefined && teamId !== ''),
+  )
+  const matchingTeam = xcodeTeams.find(team => identityTeamIds.has(team.teamId.trim().toUpperCase()))
+  if (matchingTeam !== undefined) {
+    return {
+      teamId: matchingTeam.teamId.trim(),
+      source: 'xcode-account',
+      detail: appendDetectorErrors(
+        `Xcode account team "${xcodeTeamLabel(matchingTeam)}" selected because it has a matching Apple Development identity`,
+        options.detectorErrors,
+      ),
+    }
+  }
+
+  const freeTeam = xcodeTeams.find(team => team.isFree || team.teamType?.trim().toLowerCase() === 'personal team')
+  if (freeTeam !== undefined) {
+    return {
+      teamId: freeTeam.teamId.trim(),
+      source: 'xcode-account',
+      detail: appendDetectorErrors(
+        `Xcode account team "${xcodeTeamLabel(freeTeam)}" selected because it is the free/personal team`,
+        options.detectorErrors,
+      ),
+    }
+  }
+
+  const firstXcodeTeam = xcodeTeams[0]
+  if (firstXcodeTeam !== undefined) {
+    return {
+      teamId: firstXcodeTeam.teamId.trim(),
+      source: 'xcode-account',
+      detail: appendDetectorErrors(
+        `Xcode account team "${xcodeTeamLabel(firstXcodeTeam)}" selected as the first team Xcode can provision for`,
+        options.detectorErrors,
+      ),
+    }
+  }
+
+  const identity = identities.find(candidate => (candidate.teamId?.trim() ?? '') !== '')
+  if (identity?.teamId !== undefined) {
+    const teamId = identity.teamId.trim()
+    return {
+      teamId,
+      source: 'identity',
+      detail: appendDetectorErrors(
+        `keychain Apple Development identity "${identity.name}" supplies the signing team`,
+        options.detectorErrors,
+      ),
+    }
+  }
+
+  const fallback = options.fallback?.trim() ?? ''
+  if (fallback !== '') {
+    return {
+      teamId: fallback,
+      source: 'default',
+      detail: appendDetectorErrors('legacy default signing team fallback', options.detectorErrors),
+    }
+  }
+  return {
+    source: 'none',
+    detail: appendDetectorErrors('no signing team was found', options.detectorErrors),
+  }
+}
+
+/**
+ * Resolve a signing team using option, environment, Xcode-account, identity,
+ * and fallback evidence in the order accepted by automatic provisioning.
+ */
+export async function resolveSigningTeam(options: {
+  explicit?: string
+  env?: string
+  fallback?: string
+  signal?: AbortSignal
+}): Promise<SigningTeamResolution> {
+  const explicit = options.explicit?.trim() ?? ''
+  const env = options.env?.trim() ?? ''
+  if (explicit !== '' || env !== '') {
+    return chooseSigningTeam(options)
+  }
+
+  const detectorErrors: string[] = []
+  let xcodeTeams: XcodeProvisioningTeam[] = []
+  try {
+    xcodeTeams = await detectXcodeProvisioningTeams(options.signal)
+  } catch (error) {
+    detectorErrors.push(`Xcode provisioning-team detection failed: ${errorMessage(error)}`)
+  }
+
+  let identities: SigningIdentity[] = []
+  try {
+    identities = await detectAppleDevelopmentIdentities(options.signal)
+  } catch (error) {
+    detectorErrors.push(`Apple Development identity detection failed: ${errorMessage(error)}`)
+  }
+
+  return chooseSigningTeam({
+    ...options,
+    xcodeTeams,
+    identities,
+    detectorErrors,
+  })
 }

@@ -151,14 +151,24 @@ console.log('')
     platform: 'device',
     signing: { teamId: 'FAKE-TEAM' },
   })
+  const simulatorDryArgs = assembleBuildArgs({
+    target: { kind: 'package', root: '/tmp/dsh-smoke', location: '/tmp/dsh-smoke' },
+    scheme: 'DshSimulatorSmoke',
+    configuration: 'Debug',
+    udid: 'SIMULATOR-UDID',
+    derivedDataPath: '/tmp/dsh-smoke-sim-dd',
+    platform: 'simulator',
+  })
   step(
     'device build arg assembly targets hardware UDID, never CoreDevice UUID',
     destinationId === fakeHardwareUdid
       && dryArgs.includes('-destination') && dryArgs.includes(`platform=iOS,id=${fakeHardwareUdid}`)
       && !dryArgs.includes(`platform=iOS,id=${fakeCoreDeviceUdid}`)
+      && dryArgs.includes('-allowProvisioningUpdates')
       && dryArgs.includes('CODE_SIGN_STYLE=Automatic')
-      && dryArgs.includes('DEVELOPMENT_TEAM=FAKE-TEAM'),
-    dryArgs.join(' '),
+      && dryArgs.includes('DEVELOPMENT_TEAM=FAKE-TEAM')
+      && !simulatorDryArgs.includes('-allowProvisioningUpdates'),
+    `device: ${dryArgs.join(' ')}; simulator: ${simulatorDryArgs.join(' ')}`,
   )
 }
 
