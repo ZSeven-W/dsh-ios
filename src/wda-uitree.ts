@@ -232,6 +232,7 @@ export function wdaXmlNodeToAxe(node: WdaXmlNode): AxeElement {
     // silent mis-tap / dead-tap traps this layer guards against).
     ...(wdaBoolean(node.attributes.enabled) === undefined ? {} : { enabled: wdaBoolean(node.attributes.enabled) }),
     ...(wdaBoolean(node.attributes.visible) === undefined ? {} : { visible: wdaBoolean(node.attributes.visible) }),
+    ...(node.tag === 'XCUIElementTypeSecureTextField' ? { secure: true } : {}),
     // WP60: selection state. WDA exposes selected="true"|"false" on picker
     // and table rows; it is the ONLY way to confirm which option in a list is
     // chosen without reading pixels. Emitted only when the attribute is

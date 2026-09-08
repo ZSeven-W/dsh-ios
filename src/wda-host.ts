@@ -240,6 +240,14 @@ export interface WdaDrag {
   duration: number
 }
 
+/** Parsed `GET /wda/activeAppInfo` payload. */
+export interface WdaActiveAppInfo {
+  pid?: number
+  bundleId?: string
+  name?: string
+  [key: string]: unknown
+}
+
 /**
  * Default `snapshotMaxDepth` pushed into WDA before every real-device tree
  * walk. Measured on an iPhone 17 Pro with a busy list app frontmost, on the SAME
@@ -265,6 +273,8 @@ export interface WdaControl {
   unlock(): Promise<void>
   /** Bring up Siri (`POST /wda/siri/activate`, optional utterance). */
   activateSiri(text?: string): Promise<void>
+  /** Active/frontmost app as reported by WDA (`GET /wda/activeAppInfo`). */
+  activeAppInfo(): Promise<WdaActiveAppInfo>
   screenshot(): Promise<StreamScreenshot>
   /** Accessibility tree (XML). */
   source(): Promise<string>
@@ -1003,6 +1013,14 @@ export class WdaClient {
     await this.#withSession('POST', '/wda/siri/activate', { text })
   }
 
+  /** `GET /wda/activeAppInfo` → frontmost app identity as WDA reports it. */
+  async activeAppInfo(): Promise<WdaActiveAppInfo> {
+    const value = await this.#withSession<unknown>('GET', '/wda/activeAppInfo')
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? value as WdaActiveAppInfo
+      : {}
+  }
+
   /** `GET /screenshot` → base64 PNG (1206×2622 pixels on this device). */
   async screenshot(): Promise<StreamScreenshot> {
     const value = await this.#withSession<unknown>('GET', '/screenshot')
@@ -1386,6 +1404,7 @@ export class WdaController {
     lock: () => this.#withControl(() => this.#requireClient().lock()),
     unlock: () => this.#withControl(() => this.#requireClient().unlock()),
     activateSiri: text => this.#withControl(() => this.#requireClient().activateSiri(text)),
+    activeAppInfo: () => this.#withControl(() => this.#requireClient().activeAppInfo()),
     screenshot: () => this.#withControl(() => this.#requireClient().screenshot()),
     source: () => this.#withControl(() => this.#requireClient().source()),
     setSnapshotDepth: depth => this.#withControl(() => this.#requireClient().setSnapshotDepth(depth)),

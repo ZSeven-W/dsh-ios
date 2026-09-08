@@ -89,6 +89,14 @@ export interface RawAxeNode {
   AXLabel?: unknown
   AXUniqueId?: unknown
   AXValue?: unknown
+  /** Raw AXe role/subrole, retained for secure-field classification. */
+  subrole?: unknown
+  /** Raw AXe role, retained for secure-field classification. */
+  role?: unknown
+  /** Raw AXe pid, retained for foreground app identity. */
+  pid?: unknown
+  /** Raw AXe focus state, when the backend reports one. */
+  focused?: unknown
   frame?: unknown
   children?: unknown
   /**
@@ -107,6 +115,8 @@ export interface RawAxeNode {
    * "unknown" and the tree stays small (WP60).
    */
   selected?: unknown
+  /** Positive secure classification from a raw/sanitized backend. */
+  secure?: unknown
   // Sanitized-shape aliases: makes re-sanitization of an already-sanitized
   // node idempotent (synthetic trees and cached payloads).
   label?: unknown
@@ -135,6 +145,20 @@ export interface AxeElement {
    * invented, so an absent field means "unknown" and the tree stays small.
    */
   selected?: boolean
+  /**
+   * Secure-text classification when the backend makes it known (AXe
+   * AXSecureTextField subrole; WDA XCUIElementTypeSecureTextField). Absent
+   * stays undefined: a missing role/subrole/type must never be reported as
+   * safe by omission.
+   */
+  secure?: boolean
+  /**
+   * Focus state when the backend reports it. Absent stays undefined —
+   * never guessed from AXValue/label.
+   */
+  focused?: boolean
+  /** Backend process id when present (AXe application roots). */
+  pid?: number
   frame: { x: number; y: number; w: number; h: number }
   children: AxeElement[]
 }
@@ -422,6 +446,16 @@ export function sanitizeAxeNode(raw: RawAxeNode): AxeElement {
   // Same rule as enabled/visible: a boolean from the backend is the fact; an
   // absent/other value is "unreported" and the field stays off the node.
   if (typeof raw.selected === 'boolean') node.selected = raw.selected
+  // Secure classification must be POSITIVE only. A null/absent AXe subrole
+  // cannot assert "not secure" (the backend may simply not expose one), and
+  // WDA's sanitizer passes an explicit secure=true for SecureTextField nodes.
+  // Unknown therefore stays absent, never false.
+  if (raw.secure === true) node.secure = true
+  else if (raw.subrole === 'AXSecureTextField' || raw.role === 'AXSecureTextField') node.secure = true
+  else if (typeof raw.type === 'string' && (raw.type === 'SecureTextField' || raw.type.includes('Secure'))) node.secure = true
+  if (typeof raw.focused === 'boolean') node.focused = raw.focused
+  const pid = finiteNumber(raw.pid)
+  if (pid !== undefined && Number.isSafeInteger(pid) && pid >= 0) node.pid = pid
   return node
 }
 

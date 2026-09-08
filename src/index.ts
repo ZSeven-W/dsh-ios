@@ -328,6 +328,7 @@ export {
   type RealStartRecord,
   type StreamRouteMount,
 } from './stream-routes.js'
+export * from './qa-driver.js'
 
 /** Stable plugin name (the loader entry id in cordis.patch.yml). */
 export const name = 'dsh-ios'

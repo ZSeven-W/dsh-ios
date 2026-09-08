@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "owner": "dsh-ios-wda-simulator-input",
+  "description": "Deterministic safety-only modifications for cached WebDriverAgent simulator input. Original license/attribution files are copied unchanged.",
+  "patches": [
+    {
+      "id": "bindingIPAddress-unconditional-loopback",
+      "file": "WebDriverAgentLib/Utilities/FBConfiguration.m",
+      "count": 1,
+      "oldText": "- (NSString *)bindingIPAddress\n{\n  // Existence of USE_IP in the environment allows specifying which interface to bind to\n  if (NSProcessInfo.processInfo.environment[@\"USE_IP\"] &&\n      [NSProcessInfo.processInfo.environment[@\"USE_IP\"] length] > 0) {\n    return NSProcessInfo.processInfo.environment[@\"USE_IP\"];\n  }\n\n  return nil;\n}",
+      "newText": "- (NSString *)bindingIPAddress\n{\n  // SAFE dsh-ios simulator input: HTTP must always bind to loopback.\n  // Environment cannot disable this safety patch.\n  return @\"127.0.0.1\";\n}"
+    },
+    {
+      "id": "mjpeg-broadcaster-not-started",
+      "file": "WebDriverAgentLib/Routing/FBWebServer.m",
+      "count": 1,
+      "oldText": "  [self initScreenshotsBroadcaster];\n\n  self.keepAlive = YES;",
+      "newText": "  // SAFE dsh-ios simulator input: the MJPEG broadcaster is intentionally\n  // never started. This prevents the wildcard IPv6 listener seen in the\n  // exploratory prototype.\n  // [self initScreenshotsBroadcaster];\n\n  self.keepAlive = YES;"
+    }
+  ]
+}

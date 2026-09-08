@@ -316,6 +316,8 @@ export interface WdaControllerLike {
     unlock(): Promise<void>
     /** Bring up Siri (`POST /wda/siri/activate`, optional utterance). */
     activateSiri(text?: string): Promise<void>
+    /** Active/frontmost app as reported by WDA, when the backend supports it. */
+    activeAppInfo?(): Promise<{ pid?: number; bundleId?: string; name?: string; [key: string]: unknown }>
     setOrientation(orientation: string): Promise<void>
     screenshot(): Promise<{ pngBase64: string; width?: number; height?: number }>
     source(): Promise<string>
