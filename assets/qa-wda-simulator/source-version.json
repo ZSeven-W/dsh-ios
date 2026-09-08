@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "owner": "dsh-ios-wda-simulator-input",
+  "note": "Cached source record used for the 2026-09-07 simulator proof. The runtime does not hardcode this path or this file; it uses it for audit/reference when present.",
+  "cachedCommit": "6e2b5c026f728aed9098481e756b458db87d1272",
+  "relevantSourceFiles": {
+    "WebDriverAgentLib/Utilities/FBConfiguration.m": "cadb75582d230707915b900de059254464628dc38bfe7e22c422713478da86c1",
+    "WebDriverAgentLib/Routing/FBWebServer.m": "c0f73019f2e69e562229c6845e92ea1c41b173bd5c0a9a9e57e6b564e55cbf56"
+  }
+}
