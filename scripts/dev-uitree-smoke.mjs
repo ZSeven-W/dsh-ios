@@ -811,7 +811,15 @@ try {
     let generalLabel
     const deadline = Date.now() + 120_000
     for (;;) {
-      rootTree = await uiTools.iosSimUiTree.execute({}, makeExec('ios_sim_ui_tree', {}))
+      try {
+        rootTree = await uiTools.iosSimUiTree.execute({}, makeExec('ios_sim_ui_tree', {}))
+      } catch (error) {
+        // A just-booted simulator may not expose an AX translation yet.
+        // Retry only this read-only startup error within the existing deadline.
+        if (!/No translation object returned for simulator/.test(String(error)) || Date.now() >= deadline) throw error
+        await sleep(2_000)
+        continue
+      }
       const labels = collectLabels(rootTree.tree)
       generalLabel = labels.find(label => /General|通用/.test(label))
       if (generalLabel !== undefined || Date.now() > deadline) break
@@ -946,9 +954,8 @@ try {
     try {
       if (bootedBySmoke && udid !== undefined) await shutdownDevice(udid)
     } catch { /* already shut down */ }
-    try {
-      execFileSync('pkill', ['-f', 'serve-sim'], { stdio: 'ignore', timeout: 10_000 })
-    } catch { /* pkill exit 1 = nothing to kill */ }
+    // No serve-sim process is launched by this AX-only smoke. Never kill
+    // unrelated streaming sessions belonging to another test or user.
   }
   for (const dir of tempDirs) {
     try { rmSync(dir, { recursive: true, force: true }) } catch { /* best effort */ }
