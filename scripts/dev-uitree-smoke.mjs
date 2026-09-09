@@ -86,7 +86,7 @@ function makeExec(toolName, args) {
     callId: `smoke-${toolName}`,
     rootCallId: `smoke-${toolName}`,
     name: toolName,
-    arguments: args,
+    arguments: udid === undefined ? args : { ...args, udid },
     signal: new AbortController().signal,
   }
 }
@@ -239,17 +239,21 @@ try {
   const dlDir = mkdtempSync(join(tmpdir(), 'dsh-ios-axe-dl-'))
   tempDirs.push(dlDir)
   try {
-    const fresh = await withEnv({ DSH_IOS_AXE_DIR: dlDir, DSH_IOS_AXE_OFFLINE: undefined }, async () => {
-      return ensureAxeBinary()
-    })
-    const digestFile = join(dlDir, 'axe', AXE_VERSION, '.dsh-ios-axe.sha256')
-    const integrity = fresh.available && fresh.source === 'cache'
-      && existsSync(fresh.command ?? '') && existsSync(digestFile)
-    step(
-      'fresh-cache pinned download: URL + SHA-256 + extract + integrity record',
-      integrity,
-      fresh.available ? `downloaded into ${dlDir}` : `failed: ${fresh.reason}`,
-    )
+    if (process.argv.includes('--skip-download')) {
+      warn('fresh-cache download not tested in this focused run', '--skip-download; cached AXe version is still verified')
+    } else {
+      const fresh = await withEnv({ DSH_IOS_AXE_DIR: dlDir, DSH_IOS_AXE_OFFLINE: undefined }, async () => {
+        return ensureAxeBinary()
+      })
+      const digestFile = join(dlDir, 'axe', AXE_VERSION, '.dsh-ios-axe.sha256')
+      const integrity = fresh.available && fresh.source === 'cache'
+        && existsSync(fresh.command ?? '') && existsSync(digestFile)
+      step(
+        'fresh-cache pinned download: URL + SHA-256 + extract + integrity record',
+        integrity,
+        fresh.available ? `downloaded into ${dlDir}` : `failed: ${fresh.reason}`,
+      )
+    }
   } catch (error) {
     warn('fresh-cache download could not complete (network?), warm cache still works', String(error.message).slice(0, 160))
   } finally {
@@ -812,7 +816,7 @@ try {
     const deadline = Date.now() + 120_000
     for (;;) {
       try {
-        rootTree = await uiTools.iosSimUiTree.execute({}, makeExec('ios_sim_ui_tree', {}))
+        rootTree = await uiTools.iosSimUiTree.execute({ udid }, makeExec('ios_sim_ui_tree', {}))
       } catch (error) {
         // A just-booted simulator may not expose an AX translation yet.
         // Retry only this read-only startup error within the existing deadline.
@@ -839,7 +843,7 @@ try {
     )
     step('Settings tree fits the cap untruncated', rootTree.truncated !== true, `${rootTree.nodeCount} nodes`)
 
-    const depth1 = await uiTools.iosSimUiTree.execute({ max_depth: 1 }, makeExec('ios_sim_ui_tree', { max_depth: 1 }))
+    const depth1 = await uiTools.iosSimUiTree.execute({ udid, max_depth: 1 }, makeExec('ios_sim_ui_tree', { max_depth: 1 }))
     const depth1Leaves = depth1.tree.flatMap(node => node.children ?? [])
     step(
       'max_depth=1 collapses the tree below the root',
@@ -847,7 +851,8 @@ try {
         && depth1Leaves.length > 0 && depth1Leaves.every(node => (node.children ?? []).length === 0),
       `${depth1.nodeCount} nodes`,
     )
-    const filtered = await uiTools.iosSimUiTree.execute({ filter: generalLabel }, makeExec('ios_sim_ui_tree', { filter: generalLabel }))
+    if (generalLabel === undefined) throw new Error('Settings root did not become ready within the observation deadline')
+    const filtered = await uiTools.iosSimUiTree.execute({ udid, filter: generalLabel }, makeExec('ios_sim_ui_tree', { filter: generalLabel }))
     const filterHits = collectLabels(filtered.tree)
     step(
       'filter keeps matching elements (+ ancestors) and shrinks the tree',
@@ -859,7 +864,7 @@ try {
     // Ambiguity: the root page lists many chevron.forward images.
     let ambiguity = ''
     try {
-      await uiTools.iosSimTapElement.execute({ identifier: 'chevron' }, makeExec('ios_sim_tap_element', { identifier: 'chevron' }))
+      await uiTools.iosSimTapElement.execute({ udid, identifier: 'chevron' }, makeExec('ios_sim_tap_element', { identifier: 'chevron' }))
     } catch (error) {
       ambiguity = String(error.message)
     }
@@ -869,7 +874,7 @@ try {
       ambiguity.split('\n')[0],
     )
 
-    const tapped = await uiTools.iosSimTapElement.execute({ label: generalLabel }, makeExec('ios_sim_tap_element', { label: generalLabel }))
+    const tapped = await uiTools.iosSimTapElement.execute({ udid, label: generalLabel }, makeExec('ios_sim_tap_element', { label: generalLabel }))
     const frame = tapped.element?.frame ?? {}
     const centerOk = typeof tapped.center?.x === 'number' && typeof tapped.center?.y === 'number'
       && tapped.center.x >= frame.x && tapped.center.x <= frame.x + frame.w
@@ -893,7 +898,7 @@ try {
       JSON.stringify(tapMeta),
     )
 
-    const afterTree = await uiTools.iosSimUiTree.execute({}, makeExec('ios_sim_ui_tree', {}))
+    const afterTree = await uiTools.iosSimUiTree.execute({ udid }, makeExec('ios_sim_ui_tree', {}))
     const afterLabels = collectLabels(afterTree.tree)
     step(
       'navigation happened (General page rendered)',
@@ -905,7 +910,7 @@ try {
     let degradedError = ''
     await withEnv({ DSH_IOS_AXE_BIN: '/nonexistent/axe-does-not-exist', DSH_IOS_AXE_OFFLINE: '1' }, async () => {
       try {
-        await uiTools.iosSimUiTree.execute({}, makeExec('ios_sim_ui_tree', {}))
+        await uiTools.iosSimUiTree.execute({ udid }, makeExec('ios_sim_ui_tree', {}))
       } catch (error) {
         degradedError = String(error.message)
       }
@@ -916,7 +921,7 @@ try {
         && degradedError.includes('brew install cameroncooke/axe/axe'),
       degradedError.split(';')[0],
     )
-    const recovered = await uiTools.iosSimUiTree.execute({ max_depth: 0 }, makeExec('ios_sim_ui_tree', { max_depth: 0 }))
+    const recovered = await uiTools.iosSimUiTree.execute({ udid, max_depth: 0 }, makeExec('ios_sim_ui_tree', { max_depth: 0 }))
     step('ui_tree recovers after the override is cleared', recovered.nodeCount >= 1, `${recovered.nodeCount} nodes`)
   }
 
