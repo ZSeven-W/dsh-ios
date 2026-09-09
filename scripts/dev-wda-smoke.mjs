@@ -1833,6 +1833,15 @@ process.exit(1)
       && list[1].Properties.ConnectionType === 'USB' && parsed.Number === 0,
     `DeviceList=${Array.isArray(list) ? list.length : 'n/a'} Number=${String(parsed?.Number)}`,
   )
+  const emptyDeviceList = parseUsbmuxPlist(Buffer.from(
+    '<plist version="1.0"><dict><key>DeviceList</key><array/></dict></plist>',
+    'utf8',
+  ))
+  step(
+    'an empty self-closing usbmux DeviceList parses as an empty array',
+    Array.isArray(emptyDeviceList?.DeviceList) && emptyDeviceList.DeviceList.length === 0,
+    'the previous parser rejected <array/> as an unexpected self-closing element',
+  )
   step(
     'the USB record wins over the Network twin in the parsed listing',
     pickUsbDeviceId(list.map(entry => ({

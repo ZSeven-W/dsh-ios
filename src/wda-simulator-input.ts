@@ -301,6 +301,8 @@ interface OwnedRun {
   dead: boolean
   /** Aborts in-flight connection requests when release/dispose starts. */
   abortController: AbortController
+  /** Shared cleanup promise so concurrent release callers observe one result. */
+  cleanupPromise?: Promise<boolean>
 }
 
 interface RuntimeLease {
@@ -1027,6 +1029,7 @@ class RuntimeImpl implements SimulatorWdaInputRuntime {
   readonly runtimeInstance: string
   readonly leases = new Map<string, RuntimeLease>()
   private disposed = false
+  private disposePromise: Promise<void> | undefined
 
   constructor(options: SimulatorWdaInputRuntimeOptions = {}) {
     this.sourceDir = resolve(options.wdaSourceDir ?? defaultSourceDir())
@@ -1609,7 +1612,10 @@ class RuntimeImpl implements SimulatorWdaInputRuntime {
         }
         return false
       }
-      await sleep(CLEANUP_POLL_MS)
+      // Cleanup is a foreground lifecycle operation. Keep the timer referenced
+      // so a short-lived caller cannot exit while release() is still proving
+      // that both owned processes are gone.
+      await sleep(CLEANUP_POLL_MS, undefined, { unref: false })
     }
   }
 
@@ -1645,26 +1651,33 @@ class RuntimeImpl implements SimulatorWdaInputRuntime {
     assertSafeUdid(udid)
     const lease = this.leases.get(udid)
     if (lease === undefined) return
-    if (lease.run.releasing) return
-    lease.run.releasing = true
-    lease.run.dead = true
-    lease.run.abortController.abort()
     const run = lease.run
-    await this.signalOwnedRun(run, 'SIGTERM')
-    const proven = await this.waitForOwnedProcessCleanup(
-      run.child,
-      run.launcherPid,
-      run.launcherExecutable,
-      run.runnerPid,
-      run.runnerExecutable,
-    )
-    if (proven) {
-      await this.removeOwnLock(run.lockPath, run.lockState)
-      await rm(run.runDir, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined)
-      if (this.leases.get(udid)?.generation === lease.generation) this.leases.delete(udid)
+    if (run.releasing) {
+      const proven = await run.cleanupPromise
+      if (proven !== true) throw new SimulatorWdaInputError('BUSY', 'WDA simulator input cleanup remains unproven; owned artifacts were retained for recovery')
+      return
     }
-    // Unproven cleanup intentionally leaves lockfile/runDir behind as BUSY
-    // diagnostics; the in-memory lease stays releasing so old requests fail.
+    run.releasing = true
+    run.dead = true
+    run.abortController.abort()
+    run.cleanupPromise = (async () => {
+      await this.signalOwnedRun(run, 'SIGTERM')
+      const proven = await this.waitForOwnedProcessCleanup(
+        run.child,
+        run.launcherPid,
+        run.launcherExecutable,
+        run.runnerPid,
+        run.runnerExecutable,
+      )
+      if (proven) {
+        await this.removeOwnLock(run.lockPath, run.lockState)
+        await rm(run.runDir, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined)
+        if (this.leases.get(udid)?.generation === lease.generation) this.leases.delete(udid)
+      }
+      return proven
+    })()
+    const proven = await run.cleanupPromise
+    if (proven !== true) throw new SimulatorWdaInputError('BUSY', 'WDA simulator input cleanup remains unproven; owned artifacts were retained for recovery')
   }
 
   private async removeOwnLock(lockPath: string, state: RuntimeLockState): Promise<void> {
@@ -1685,34 +1698,48 @@ class RuntimeImpl implements SimulatorWdaInputRuntime {
   }
 
   async dispose(): Promise<void> {
-    if (this.disposed) return
+    if (this.disposePromise !== undefined) return this.disposePromise
     this.disposed = true
-    const keys = [...this.leases.keys()]
-    for (const key of keys) {
-      const lease = this.leases.get(key)
-      if (lease !== undefined && !lease.run.releasing) {
-        await this.release(key)
-      } else if (lease !== undefined && lease.run.releasing) {
-        // A previous cleanup was intentionally unproven. Keep its artifacts;
-        // dispose must not delete them or allow a second runtime over orphan.
-        continue
+    this.disposePromise = (async () => {
+      let firstError: unknown
+      const keys = [...this.leases.keys()]
+      for (const key of keys) {
+        const lease = this.leases.get(key)
+        if (lease === undefined) continue
+        try {
+          if (!lease.run.releasing) await this.release(key)
+          else if (await lease.run.cleanupPromise !== true) {
+            throw new SimulatorWdaInputError('BUSY', 'WDA simulator input cleanup remains unproven; owned artifacts were retained for recovery')
+          }
+        } catch (error) {
+          firstError ??= error
+        }
       }
-    }
+      if (firstError !== undefined) throw firstError
+    })()
+    return this.disposePromise
   }
 }
 
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+function sleep(ms: number, signal?: AbortSignal, options: { unref?: boolean } = {}): Promise<void> {
   return new Promise(resolvePromise => {
-    if (signal?.aborted === true) {
+    let settled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const finish = (): void => {
+      if (settled) return
+      settled = true
+      if (timer !== undefined) clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
       resolvePromise()
+    }
+    const onAbort = (): void => finish()
+    if (signal?.aborted === true) {
+      finish()
       return
     }
-    const timer = setTimeout(resolvePromise, ms)
-    if (typeof timer.unref === 'function') timer.unref()
-    signal?.addEventListener('abort', () => {
-      clearTimeout(timer)
-      resolvePromise()
-    }, { once: true })
+    timer = setTimeout(finish, ms)
+    if (options.unref !== false && typeof timer.unref === 'function') timer.unref()
+    signal?.addEventListener('abort', onAbort, { once: true })
   })
 }
 

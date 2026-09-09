@@ -345,6 +345,38 @@ export function usbmuxTunnelFailureDetail(kind: UsbmuxTunnelFailure): string {
   }
 }
 
+export class UsbmuxConnectError extends Error {
+  constructor(readonly resultCode: number, message: string) {
+    super(message)
+    this.name = 'UsbmuxConnectError'
+  }
+}
+
+/** Probe the device itself, not an optional host-side forward. A successful
+ * connection is immediately closed; only an explicit refused port is absent. */
+export async function probeUsbmuxDevicePort(
+  udid: string,
+  port: number,
+  seams: {
+    resolveDevice?: (udid: string) => Promise<number | undefined>
+    connectDevice?: (deviceId: number, port: number) => Promise<Pick<Socket, 'destroy'>>
+  } = {},
+): Promise<boolean> {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new RangeError('invalid device port')
+  const deviceId = await (seams.resolveDevice ?? resolveUsbDeviceId)(udid)
+  if (deviceId === undefined) throw new Error('dsh-ios: device listener preflight requires an attached USB device')
+  let socket: Pick<Socket, 'destroy'> | undefined
+  try {
+    socket = await (seams.connectDevice ?? connectUsbmuxDevice)(deviceId, port)
+    return true
+  } catch (error) {
+    if (error instanceof UsbmuxConnectError && error.resultCode === 3) return false
+    throw error
+  } finally {
+    socket?.destroy()
+  }
+}
+
 async function connectUsbmuxDevice(deviceId: number, devicePort: number): Promise<Socket> {
   const socket = await connectUsbmux()
   try {
@@ -363,7 +395,7 @@ async function connectUsbmuxDevice(deviceId: number, devicePort: number): Promis
     const number = asNumber(reply.Number, 'Connect result Number')
     if (number !== 0) {
       const reason = number === 2 ? 'device not connected' : number === 3 ? 'port refused' : 'unknown error'
-      throw new Error(`dsh-ios: usbmuxd Connect to device ${deviceId} port ${devicePort} failed: ${reason} (code ${number})`)
+      throw new UsbmuxConnectError(number, `dsh-ios: usbmuxd Connect to device ${deviceId} port ${devicePort} failed: ${reason} (code ${number})`)
     }
     return socket
   } catch (error) {

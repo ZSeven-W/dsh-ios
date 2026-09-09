@@ -790,8 +790,9 @@ try {
   } else {
     // ── E. real simulator ────────────────────────────────────────────────────
     const devices = await listDevices()
-    const iphones = devices.filter(d => d.name.startsWith('iPhone'))
-    if (iphones.length === 0) throw new Error('no available iPhone simulators')
+    const alreadyBooted = new Set((await bootedDevices()).map(d => d.udid))
+    const iphones = devices.filter(d => d.name.startsWith('iPhone') && !alreadyBooted.has(d.udid))
+    if (iphones.length === 0) throw new Error('no shutdown iPhone simulator available; refusing to disturb an existing session')
     const picked = iphones.sort((a, b) => b.runtime.localeCompare(a.runtime, undefined, { numeric: true }))[0]
     udid = picked.udid
     deviceName = picked.name
@@ -917,8 +918,8 @@ try {
       await shutdownDevice(udid)
       bootedBySmoke = false
     }
-    const leftDevices = (await bootedDevices()).map(d => `${d.name} ${d.udid}`)
-    step('no booted simulators left', leftDevices.length === 0, leftDevices.join(', ') || 'none')
+    const leftDevices = await bootedDevices()
+    step('owned simulator stopped; unrelated sessions left untouched', !leftDevices.some(d => d.udid === udid), 'checked only the simulator booted by this smoke')
   }
 
   let axeProcs = ''

@@ -25,12 +25,13 @@ import {
   listDevices as listSimulatorDevices,
   takeScreenshot as simctlTakeScreenshot,
 } from './simctl.js'
-import type { RealDevice } from './devicectl.js'
+import type { RealDevice, SigningTeamResolution } from './devicectl.js'
 import {
   getRealDevice,
   launchApp as devicectlLaunchApp,
   listRealDevices,
   matchesRealDevice,
+  resolveSigningTeam,
 } from './devicectl.js'
 import type { AxeBinary, AxeElement } from './uitree-backend.js'
 import {
@@ -39,7 +40,8 @@ import {
   resolveAxeBinary,
 } from './uitree-backend.js'
 import { wdaSourceToElements } from './wda-uitree.js'
-import { WdaController } from './wda-host.js'
+import { WdaController, WdaError, type WdaOptions } from './wda-host.js'
+import { PhysicalWdaStageError, resolvePhysicalWdaProjectDir } from './wda-physical-stage.js'
 import { SimHostController } from './sim-host.js'
 import type { SimHostStatus, SimStreamInfo } from './sim-host.js'
 import { sendSimGesture, simScrollPath, type SimScrollRequest } from './sim-gesture.js'
@@ -284,8 +286,10 @@ export interface IosQaPhysicalTargetedOptions {
   /** One-shot transport factory (tests only; defaults to the owned usbmux forward). */
   transportFactory?: (
     udid: string,
-    options?: { signal?: AbortSignal },
+    options?: { signal?: AbortSignal; hardwareUdid?: string },
   ) => Promise<PhysicalTargetedTransport>
+  /** Resolve CoreDevice logical id to the hardware UDID usbmuxd requires. */
+  resolveHardwareUdid?: (udid: string, options?: { signal?: AbortSignal }) => Promise<string | undefined>
 }
 
 export interface IosQaScreenshot {
@@ -392,7 +396,14 @@ export interface IosQaBackendOptions {
     teamId?: string
     bundleId?: string
     projectDir?: string
+    adoptExisting?: boolean
   }
+  /** Test seam for lazy default physical WDA setup. */
+  resolveSigningTeam?: (options: { explicit?: string; env?: string; fallback?: string; signal?: AbortSignal }) => Promise<SigningTeamResolution>
+  /** Test seam for private physical WDA staging. */
+  stagePhysicalWda?: () => Promise<{ stageDir: string }>
+  /** Test seam for observing lazy WDA construction without host tooling. */
+  wdaFactory?: (options: WdaOptions) => WdaControllerLike
   observeDefaults?: {
     maxNodes?: number
     maxDepth?: number
@@ -446,6 +457,8 @@ const DEFAULT_MAX_NODES = 500
 const DEFAULT_WDA_SNAPSHOT_DEPTH = 40
 const SCROLL_DURATION_S = 0.35
 const LAUNCHCTL_TIMEOUT_MS = 15_000
+const AXE_REREAD_ATTEMPTS = 3
+const AXE_REREAD_DELAY_MS = 150
 
 /** Native WDA types accepted by the semantic targeted-text route. */
 const TARGETED_SEMANTIC_TYPES = new Set(['TextField', 'TextView', 'SearchField'])
@@ -596,8 +609,10 @@ export function createIosQaBackend(options: IosQaBackendOptions = {}): IosQaBack
 class IosQaBackendImpl implements IosQaBackend {
   readonly #sim: SimBackendLike
   readonly #ownsSim: boolean
-  readonly #wda: WdaControllerLike | undefined
+  #wda: WdaControllerLike | undefined
   readonly #ownsWda: boolean
+  #wdaCreatedByBackend: boolean
+  #ownedWdaBinding: { logicalUdid: string; hardwareUdid: string } | undefined
   readonly #simDevices: SimDeviceSource
   readonly #realDevices: RealDeviceSource
   readonly #axeResolver: IosQaAxeResolver | undefined
@@ -608,6 +623,10 @@ class IosQaBackendImpl implements IosQaBackend {
   readonly #simForegroundApp: ((udid: string, pid: number, signal?: AbortSignal) => Promise<IosQaSimulatorForegroundResult>) | undefined
   readonly #observeDefaults: { maxNodes?: number; maxDepth?: number }
   readonly #hasWdaSigning: boolean
+  readonly #wdaOptions: NonNullable<IosQaBackendOptions['wdaOptions']>
+  readonly #resolveSigningTeam: NonNullable<IosQaBackendOptions['resolveSigningTeam']>
+  readonly #stagePhysicalWda: NonNullable<IosQaBackendOptions['stagePhysicalWda']>
+  readonly #wdaFactory: NonNullable<IosQaBackendOptions['wdaFactory']>
   /** Physical targeted-text seams (identity reader + transport factory). */
   readonly #physicalTargeted: IosQaPhysicalTargetedOptions
   /** Injected safe input runtime (never owned/disposed by this backend). */
@@ -616,6 +635,9 @@ class IosQaBackendImpl implements IosQaBackend {
   readonly #wdaInputRuntimeFactory: () => SimulatorWdaInputRuntime
   /** Lazily-created owned safe input runtime; only created on a target request. */
   #ownedInputRuntime: SimulatorWdaInputRuntime | undefined
+  readonly #ownedWdaDevices = new Map<string, { hardwareUdid: string }>()
+  /** Devices for which empty AX recovery has already acquired one owned lease. */
+  readonly #axeRecoveryLeases = new Set<string>()
 
   constructor(options: IosQaBackendOptions) {
     const providedSim = options.sim
@@ -624,10 +646,15 @@ class IosQaBackendImpl implements IosQaBackend {
 
     const wdaOptions = options.wdaOptions ?? {}
     const envTeam = process.env.DSH_IOS_TEAM_ID?.trim() ?? ''
-    this.#hasWdaSigning = options.wda !== undefined || wdaOptions.teamId?.trim() !== '' || envTeam !== ''
-    const canBuildWda = options.wda !== undefined || wdaOptions.teamId?.trim() !== '' || envTeam !== '' || options.wdaOptions !== undefined
-    this.#wda = options.wda ?? (canBuildWda ? new WdaController(wdaOptions) : undefined)
-    this.#ownsWda = options.wda === undefined && this.#wda !== undefined
+    const explicitTeam = typeof wdaOptions.teamId === 'string' && wdaOptions.teamId.trim() !== ''
+    this.#hasWdaSigning = options.wda !== undefined || explicitTeam || envTeam !== ''
+    this.#wda = options.wda
+    this.#ownsWda = options.wda === undefined
+    this.#wdaCreatedByBackend = options.wda === undefined
+    this.#wdaOptions = wdaOptions
+    this.#resolveSigningTeam = options.resolveSigningTeam ?? resolveSigningTeam
+    this.#stagePhysicalWda = options.stagePhysicalWda ?? (async () => resolvePhysicalWdaProjectDir())
+    this.#wdaFactory = options.wdaFactory ?? (wda => new WdaController(wda))
 
     this.#injectedInputRuntime = options.wdaInputRuntime
     this.#wdaInputRuntimeFactory = options.wdaInputRuntimeFactory ?? createSimulatorWdaInputRuntime
@@ -1015,11 +1042,25 @@ class IosQaBackendImpl implements IosQaBackend {
   async releaseDevice(udid: string): Promise<void> {
     assertNonEmpty(udid, 'udid')
     const runtime = this.#injectedInputRuntime ?? this.#ownedInputRuntime
-    if (runtime === undefined) return
-    try {
-      await runtime.release(udid)
-    } catch (error) {
-      throw this.#cleanupError(error, 'release')
+    if (runtime !== undefined) {
+      try {
+        await runtime.release(udid)
+        this.#axeRecoveryLeases.delete(udid)
+      } catch (error) {
+        throw this.#cleanupError(error, 'release')
+      }
+    }
+    const bindingMatches = this.#ownedWdaBinding !== undefined
+      && (this.#ownedWdaBinding.logicalUdid === udid || this.#ownedWdaBinding.hardwareUdid === udid)
+    const statusDevice = this.#wda?.status().device
+    if (this.#wdaCreatedByBackend && this.#wda !== undefined && (bindingMatches || statusDevice === udid)) {
+      try {
+        await this.#wda.stop()
+        this.#ownedWdaDevices.clear()
+        this.#ownedWdaBinding = undefined
+      } catch (error) {
+        throw new IosQaError('dsh-ios qa: release of the owned WebDriverAgent failed without a clean proof', 'wda.release-failed')
+      }
     }
   }
 
@@ -1043,10 +1084,13 @@ class IosQaBackendImpl implements IosQaBackend {
         // unproven-cleanup state must keep the runtime handle so a later
         // release/retry still sees BUSY instead of a fresh orphan-spawning run.
         this.#ownedInputRuntime = undefined
+        this.#axeRecoveryLeases.clear()
       } catch (error) {
         throw this.#cleanupError(error, 'dispose')
       }
     }
+    this.#ownedWdaDevices.clear()
+    this.#ownedWdaBinding = undefined
   }
 
   // ── Public surface private helpers ──────────────────────────────────────────
@@ -1176,7 +1220,6 @@ class IosQaBackendImpl implements IosQaBackend {
       }
     }
     const expectedPID = target.expectedPID ?? before.pid
-
     // Lazy runtime ensure; only reached on a targeted-text request.
     let connection: WdaSimulatorConnection
     try {
@@ -1340,15 +1383,38 @@ class IosQaBackendImpl implements IosQaBackend {
       })
     }
     const expectedPID = target.expectedPID ?? before.pid
+    let hardwareUdid: string | undefined
+    try {
+      if (this.#physicalTargeted.resolveHardwareUdid !== undefined) {
+        hardwareUdid = await this.#physicalTargeted.resolveHardwareUdid(udid, { signal })
+      } else if (this.#realDevices.resolve !== undefined) {
+        const resolved = await this.#realDevices.resolve(udid, signal)
+        const requestedMatches = resolved.udid === udid || resolved.hardwareUdid === udid
+        hardwareUdid = requestedMatches && typeof resolved.hardwareUdid === 'string' && resolved.hardwareUdid.trim() !== ''
+          ? resolved.hardwareUdid
+          : undefined
+      } else if (this.#physicalTargeted.transportFactory !== undefined) {
+        hardwareUdid = udid
+      }
+    } catch {
+      hardwareUdid = undefined
+    }
+    if (cancelled()) return rejected('CANCELLED', 'operation was cancelled before mutation')
+    if (hardwareUdid === undefined || hardwareUdid === '') {
+      return rejected('APP_IDENTITY_MISMATCH', 'CoreDevice identity has no verified hardware UDID for usbmux', {
+        capability: 'physical.targeted.hardware-udid.unavailable',
+        reason: 'the CoreDevice logical identifier could not be mapped to the attached hardware UDID',
+      })
+    }
 
     // 2. Own one-shot transport (fresh 127.0.0.1 usbmux forward). Never
     // starts WDA, never adopts/kills unrelated tunnels or processes.
     const buildTransport = this.#physicalTargeted.transportFactory
-      ?? ((deviceUdid: string, options?: { signal?: AbortSignal }) =>
-        createPhysicalTargetedTransport({ udid: deviceUdid, ...(options?.signal === undefined ? {} : { signal: options.signal }) }))
+      ?? ((deviceUdid: string, options?: { signal?: AbortSignal; hardwareUdid?: string }) =>
+        createPhysicalTargetedTransport({ udid: deviceUdid, hardwareUdid, ...(options?.signal === undefined ? {} : { signal: options.signal }) }))
     let transport: PhysicalTargetedTransport
     try {
-      transport = await buildTransport(udid, { signal })
+      transport = await buildTransport(udid, { signal, hardwareUdid })
     } catch (error) {
       if (cancelled()) {
         return rejected('CANCELLED', 'operation was cancelled before mutation')
@@ -1468,34 +1534,56 @@ class IosQaBackendImpl implements IosQaBackend {
 
   async #describeSimulator(udid: string, signal?: AbortSignal): Promise<AxeElement[]> {
     const resolver = this.#axeResolver
-    if (resolver === undefined) {
-      const resolved = resolveAxeBinary()
-      const binary = resolved.available ? resolved : await ensureAxeBinary()
-      if (!binary.available || binary.command === undefined) {
-        throw new IosQaError(`AXe is unavailable${binary.reason === undefined ? '' : ` (${binary.reason})`}`, 'simulator.axe.unavailable')
-      }
-      return describeUi(binary, udid, signal)
-    }
-    if (typeof resolver === 'function') {
-      if (resolver.length >= 1) {
-        const roots = await (resolver as (deviceUdid: string, abortSignal?: AbortSignal) => Promise<AxeElement[]>)(udid, signal)
-        if (!Array.isArray(roots)) {
-          throw new TypeError('dsh-ios qa: axe describe-ui injection must resolve to an array of AXe roots')
+    const describe = async (): Promise<AxeElement[]> => {
+      if (resolver === undefined) {
+        const resolved = resolveAxeBinary()
+        const binary = resolved.available ? resolved : await ensureAxeBinary()
+        if (!binary.available || binary.command === undefined) {
+          throw new IosQaError(`AXe is unavailable${binary.reason === undefined ? '' : ` (${binary.reason})`}`, 'simulator.axe.unavailable')
         }
-        return roots
+        return describeUi(binary, udid, signal)
       }
-      const value = await (resolver as () => Promise<AxeBinary | AxeElement[]>)()
-      if (Array.isArray(value)) return value
-      const binary = value
-      if (!isAxeBinary(binary) || !binary.available || binary.command === undefined) {
-        throw new IosQaError('AXe binary resolver did not provide an available binary', 'simulator.axe.unavailable')
+      if (typeof resolver === 'function') {
+        if (resolver.length >= 1) {
+          const roots = await (resolver as (deviceUdid: string, abortSignal?: AbortSignal) => Promise<AxeElement[]>)(udid, signal)
+          if (!Array.isArray(roots)) throw new TypeError('dsh-ios qa: axe describe-ui injection must resolve to an array of AXe roots')
+          return roots
+        }
+        const value = await (resolver as () => Promise<AxeBinary | AxeElement[]>)()
+        if (Array.isArray(value)) return value
+        const binary = value
+        if (!isAxeBinary(binary) || !binary.available || binary.command === undefined) {
+          throw new IosQaError('AXe binary resolver did not provide an available binary', 'simulator.axe.unavailable')
+        }
+        return describeUi(binary, udid, signal)
       }
-      return describeUi(binary, udid, signal)
+      if (!isAxeBinary(resolver) || !resolver.available || resolver.command === undefined) {
+        throw new IosQaError('the provided AXe binary is unavailable', 'simulator.axe.unavailable')
+      }
+      return describeUi(resolver, udid, signal)
     }
-    if (!isAxeBinary(resolver) || !resolver.available || resolver.command === undefined) {
-      throw new IosQaError('the provided AXe binary is unavailable', 'simulator.axe.unavailable')
+    const usable = (roots: readonly AxeElement[]): boolean => roots.some(root => root.children.length > 0 || root.frame.w > 0 || root.frame.h > 0 || (typeof root.label === 'string' && root.label.trim() !== '') || (typeof root.identifier === 'string' && root.identifier.trim() !== ''))
+    signal?.throwIfAborted()
+    let roots = await describe()
+    for (let attempt = 1; !usable(roots) && attempt < AXE_REREAD_ATTEMPTS; attempt += 1) {
+      signal?.throwIfAborted()
+      await new Promise(resolve => setTimeout(resolve, AXE_REREAD_DELAY_MS))
+      signal?.throwIfAborted()
+      roots = await describe()
     }
-    return describeUi(resolver, udid, signal)
+    if (!usable(roots) && !this.#axeRecoveryLeases.has(udid)) {
+      // A bounded empty-tree reread is the only recovery trigger. Acquire one
+      // lease from this backend's own safe input runtime, then take one fresh
+      // AX snapshot. This does not restart apps/system services or reuse an
+      // unrelated runner; releaseDevice/dispose owns the lease cleanup.
+      signal?.throwIfAborted()
+      await this.#ensureInputRuntime(udid, signal)
+      this.#axeRecoveryLeases.add(udid)
+      signal?.throwIfAborted()
+      roots = await describe()
+    }
+    if (!usable(roots)) throw new IosQaError('AXe returned an incomplete simulator accessibility tree; retry after the simulator accessibility service recovers', 'simulator.axe.incomplete')
+    return roots
   }
 
   async #resolveKind(udid: string, signal?: AbortSignal): Promise<IosQaDeviceKind> {
@@ -1551,19 +1639,74 @@ class IosQaBackendImpl implements IosQaBackend {
     }
   }
 
-  async #requireWda(udid: string, _signal?: AbortSignal): Promise<WdaControllerLike> {
+  async #requireWda(udid: string, signal?: AbortSignal): Promise<WdaControllerLike> {
     if (this.#wda === undefined) {
-      throw new IosQaError('the WebDriverAgent backend is not configured', 'unsupported.wda.backend.unavailable')
+      let resolution: SigningTeamResolution
+      try {
+        resolution = await this.#resolveSigningTeam({
+          explicit: this.#wdaOptions.teamId,
+          env: process.env.DSH_IOS_TEAM_ID,
+          fallback: undefined,
+          signal,
+        })
+      } catch (error) {
+        throw new IosQaError(`unable to resolve WebDriverAgent signing team: ${errorMessage(error)}`, 'unsupported.wda.signing-team.unavailable')
+      }
+      if (resolution.teamId === undefined || resolution.teamId.trim() === '' || resolution.source === 'none') {
+        throw new IosQaError(
+          'WebDriverAgent signing team is not configured; set DSH_IOS_TEAM_ID or provide wdaOptions.teamId',
+          'unsupported.wda.signing-team.unconfigured',
+        )
+      }
+      let projectDir = optionalString(this.#wdaOptions.projectDir)
+      if (projectDir === undefined) {
+        try {
+          projectDir = (await this.#stagePhysicalWda()).stageDir
+        } catch (error) {
+          if (error instanceof PhysicalWdaStageError) {
+            const code = error.code === 'PATCH_FAILED'
+              ? 'unsupported.wda.source.patch-failed'
+              : 'unsupported.wda.source.unavailable'
+            throw new IosQaError(error.message, code)
+          }
+          throw new IosQaError(`unable to stage the private WebDriverAgent source: ${errorMessage(error)}`, 'unsupported.wda.source.unavailable')
+        }
+      }
+      this.#wda = this.#wdaFactory({
+        ...this.#wdaOptions,
+        teamId: resolution.teamId,
+        wdaProjectDir: projectDir,
+        adoptExisting: this.#wdaOptions.adoptExisting ?? false,
+      })
+      this.#wdaCreatedByBackend = true
     }
-    if (!this.#hasWdaSigning) {
+    if (this.#hasWdaSigning === false && this.#wda !== undefined && this.#ownsWda === false) {
       throw new IosQaError(
         'WebDriverAgent signing team is not configured; set DSH_IOS_TEAM_ID or provide wdaOptions.teamId',
         'unsupported.wda.signing-team.unconfigured',
       )
     }
     try {
-      await this.#wda.ensureRunning({ udid })
+      if (this.#wdaCreatedByBackend) this.#ownedWdaBinding = { logicalUdid: udid, hardwareUdid: udid }
+      const running = await this.#wda.ensureRunning({ udid })
+      if (this.#wdaCreatedByBackend) {
+        // WdaController owns one active runner at a time. Replace the prior
+        // binding so releasing an older device cannot stop the newer runner.
+        this.#ownedWdaDevices.clear()
+        this.#ownedWdaDevices.set(udid, { hardwareUdid: running.hardwareUdid })
+        this.#ownedWdaDevices.set(running.udid, { hardwareUdid: running.hardwareUdid })
+        this.#ownedWdaDevices.set(running.hardwareUdid, { hardwareUdid: running.hardwareUdid })
+        this.#ownedWdaBinding = { logicalUdid: running.udid, hardwareUdid: running.hardwareUdid }
+      }
     } catch (error) {
+      if (error instanceof WdaError) {
+        const code = error.reason === 'wda-already-running'
+          ? 'unsupported.wda.already-running'
+          : error.reason === 'unavailable'
+            ? 'unsupported.wda.tooling.unavailable'
+            : 'wda.start-failed'
+        throw new IosQaError(`WebDriverAgent is not running for ${udid}: ${error.message}`, code)
+      }
       throw new IosQaError(`WebDriverAgent is not running for ${udid}: ${errorMessage(error)}`, 'wda.start-failed')
     }
     return this.#wda

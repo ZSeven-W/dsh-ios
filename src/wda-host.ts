@@ -60,6 +60,7 @@ import { pngDimensionsFromBase64, type StreamScreenshot } from './stream-source.
 import {
   classifyUsbmuxTunnelFailure,
   createUsbmuxForward,
+  probeUsbmuxDevicePort,
   resolveUsbDeviceId,
   usbmuxAvailable,
   usbmuxTunnelFailureDetail,
@@ -109,6 +110,8 @@ export type WdaFailureReason =
   | 'wda-not-ready'
   /** Host tooling (xcodebuild / iproxy / WDA checkout) missing. */
   | 'unavailable'
+  /** A foreign WDA answered on the control port and adoption was disabled. */
+  | 'wda-already-running'
 
 /** Error carrying a classified failure reason (plus the original cause). */
 export class WdaError extends Error {
@@ -146,6 +149,8 @@ export interface WdaOptions {
   teamId?: string
   /** `PRODUCT_BUNDLE_IDENTIFIER` for the runner; overrides `DSH_IOS_WDA_BUNDLE_ID`. */
   bundleId?: string
+  /** Adopt a pre-existing WDA on the control port (default true). */
+  adoptExisting?: boolean
   /** Minimum delay before an unintentional exit is restarted (default 5000 ms). */
   restartDelayMs?: number
   /** Stop WDA after this long with zero consumers (default 5 min, 0 disables). */
@@ -159,6 +164,8 @@ export interface WdaOptions {
   /** @internal Test seam: keep-alive liveness probe for an ADOPTED WDA
    * (defaults to the real `GET /status` probe with the adopted timeout). */
   probeControl?: (port: number) => Promise<boolean>
+  /** @internal Read-only device listener probe; never adopts a host forward. */
+  probeDevicePort?: (udid: string, port: number) => Promise<boolean>
   /** @internal Test seam: monotonic clock for the liveness windows
    * (defaults to `Date.now`). */
   now?: () => number
@@ -585,6 +592,8 @@ export function wdaFailureDetail(reason: WdaFailureReason, deviceName: string, s
       return 'WDA answered but did not become ready — re-run'
     case 'unavailable':
       return 'WDA tooling is unavailable on this host'
+    case 'wda-already-running':
+      return 'a foreign WDA is already running on the control port — stop it or explicitly allow adoption'
   }
 }
 
@@ -1350,12 +1359,14 @@ export class WdaController {
       mjpegPortStart: options.mjpegPortStart ?? MJPG_PORT_START,
       teamId: team.source === 'default' ? undefined : team.value,
       bundleId: bundle.value,
+      adoptExisting: options.adoptExisting ?? true,
       restartDelayMs: options.restartDelayMs ?? DEFAULT_RESTART_DELAY_MS,
       idleTimeoutMs: options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS,
       startTimeoutMs: options.startTimeoutMs ?? DEFAULT_START_TIMEOUT_MS,
       readyTimeoutMs: options.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
       requestTimeoutMs: options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS,
       probeControl: options.probeControl ?? ((port: number) => probeWdaControlTunnel(port, ADOPTED_PROBE_TIMEOUT_MS)),
+      probeDevicePort: options.probeDevicePort ?? probeUsbmuxDevicePort,
       now: options.now ?? Date.now,
       keepAliveInterval: options.keepAliveInterval ?? defaultKeepAliveInterval,
       makeUsbmuxForward: options.makeUsbmuxForward ?? defaultMakeUsbmuxForward,
@@ -1840,9 +1851,27 @@ export class WdaController {
     if (current !== undefined && current.hardwareUdid === hardwareUdid && current.child.exitCode === null && current.child.signalCode === null) {
       return false
     }
+    // The initial adoption handshake is independent of the keep-alive probe
+    // seam (which may intentionally report later transient failures).
     if (await probeWdaControlTunnel(this.#options.controlPortStart)) {
+      if (!this.#options.adoptExisting) {
+        const detail = 'a WebDriverAgent is already running on the control port and adoptExisting=false; refusing to spawn or take over it'
+        this.#failure = { reason: 'wda-already-running', detail }
+        throw new WdaError('wda-already-running', `dsh-ios: ${detail}`)
+      }
       this.#noteStderr(`adopted an already-running WDA on 127.0.0.1:${this.#options.controlPortStart} — no xcodebuild spawned`)
       return true
+    }
+    if (!this.#options.adoptExisting) {
+      let occupied: boolean
+      try {
+        occupied = await this.#options.probeDevicePort(hardwareUdid, DEVICE_PORT_CONTROL)
+      } catch (error) {
+        throw new WdaError('unavailable', 'device WDA listener could not be verified over USB; no runner was started', error)
+      }
+      if (occupied) {
+        throw new WdaError('wda-already-running', 'device WDA port is already occupied; refusing to replace a runner without ownership')
+      }
     }
     await this.#spawnRunner(device, hardwareUdid)
     return false

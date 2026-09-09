@@ -8,6 +8,8 @@
  * the real WDA, never touches the cached WDA source or another process.
  */
 
+import assert from 'node:assert/strict'
+
 import { createServer } from 'node:http'
 import { EventEmitter } from 'node:events'
 import {
@@ -24,7 +26,9 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const modulePath = join(root, 'lib', 'wda-simulator-input.js')
+const modulePath = process.env.DSH_IOS_QA_LIB_DIR === undefined
+  ? join(root, 'lib', 'wda-simulator-input.js')
+  : join(process.env.DSH_IOS_QA_LIB_DIR, 'wda-simulator-input.js')
 const sourcePath = join(root, 'src', 'wda-simulator-input.ts')
 
 const mod = await import(modulePath)
@@ -123,7 +127,10 @@ class FakeChild extends EventEmitter {
       this.emit('exit', null, signal)
       if (this.processTable) this.processTable.delete(this.pid)
     }
-    if (this.killDelayMs > 0) setTimeout(finish, this.killDelayMs)
+    if (this.killDelayMs > 0) {
+      const timer = setTimeout(finish, this.killDelayMs)
+      timer.unref?.()
+    }
     else finish()
     return true
   }
@@ -156,7 +163,8 @@ class FakeExternalProcess {
     if (this.failKill && signal === 'SIGKILL') return false
     this.killed.push(signal)
     if (this.killDelayMs > 0) {
-      setTimeout(() => { this.alive = false }, this.killDelayMs)
+      const timer = setTimeout(() => { this.alive = false }, this.killDelayMs)
+      timer.unref?.()
     } else {
       this.alive = false
     }
@@ -173,14 +181,16 @@ function makeFakeSpawn(captured, {
   runnerKillDelayMs = 0,
   runnerFailTerm = false,
   runnerFailKill = false,
+  runnerPolicy,
 } = {}) {
   let nextPid = 1000
   const processes = new Map()
   const fakeSpawn = function fakeSpawn(file, args, options) {
-    const child = new FakeChild(++nextPid, `${file} ${args.join(' ')}`, {
+    const child = new FakeChild(nextPid, `${file} ${args.join(' ')}`, {
       killDelayMs: launcherKillDelayMs,
       failTerm: launcherFailTerm,
     })
+    nextPid += 2 // reserve child.pid + 1 for the verified fake runner pid
     child.processTable = processes
     processes.set(child.pid, child)
     const record = { file, args, options, child }
@@ -213,10 +223,11 @@ function makeFakeSpawn(captured, {
       runnerExecutable = join(app, 'WebDriverAgentRunner-Runner')
     }
     const runnerPid = child.pid + 1
+    const policy = typeof runnerPolicy === 'function' ? runnerPolicy(args[2]) : {}
     const runner = new FakeExternalProcess(runnerPid, `${runnerExecutable} --run-as-tool -XCTest UITestingUITests/testRunner`, {
-      killDelayMs: runnerKillDelayMs,
-      failTerm: runnerFailTerm,
-      failKill: runnerFailKill,
+      killDelayMs: policy.killDelayMs ?? runnerKillDelayMs,
+      failTerm: policy.failTerm ?? runnerFailTerm,
+      failKill: policy.failKill ?? runnerFailKill,
     })
     processes.set(runnerPid, runner)
     record.runnerPid = runnerPid
@@ -282,7 +293,14 @@ async function startMockWda(port) {
     server.once('error', reject)
     server.listen(port, WDA_SIMULATOR_LOOPBACK, resolvePromise)
   })
-  return { server, requests, close: () => new Promise(resolve => server.close(resolve)) }
+  return {
+    server,
+    requests,
+    close: () => new Promise(resolve => {
+      server.closeAllConnections?.()
+      server.close(resolve)
+    }),
+  }
 }
 
 function readJson(file) {
@@ -309,8 +327,26 @@ function makeRuntimeOptions({ source, toolchain, state, captured, overrides = {}
     startupPollMs: 5,
     requestTimeoutMs: 500,
     randomNonce: overrides.randomNonce ?? (() => `nonce-${++seed}`),
+    now: overrides.now,
     execFileFn: overrides.execFileFn,
   }
+}
+
+if (process.env.DSH_WDA_RELEASE_CHILD === '1') {
+  const src = makeSourceTree()
+  const state = join(TMP, 'release-child-state')
+  const serverPort = 30109
+  const mock = await startMockWda(serverPort)
+  const captured = { spawns: [] }
+  const runtime = createSimulatorWdaInputRuntime(makeRuntimeOptions({ source: src, toolchain: makeToolchain(), state, captured, serverPort, overrides: { fake: { launcherKillDelayMs: 30, runnerKillDelayMs: 90 } } }))
+  await runtime.ensure(UDID)
+  await mock.close()
+  await runtime.release(UDID)
+  await runtime.dispose()
+  const lock = join(state, 'locks', `${UDID}.lock.json`)
+  assert(!existsSync(lock), 'release-child lockfile remains after release')
+  console.log('release-child-settled')
+  process.exit(0)
 }
 
 // 1. Host-free import and exact public API
@@ -544,12 +580,93 @@ step('UDID validation prevents traversal and non-simulator strings', udidOk && u
       createdAt: new Date().toISOString(),
     }))
     const sim = captured.spawns.filter(s => s.args.includes('simctl'))[0]
-    await runtime.release(UDID)
+    let releaseError
+    try { await runtime.release(UDID) } catch (error) { releaseError = error }
     const runnerGone = sim && !sim.runner.alive
-    step('unknown-owner lock preserved while owned run is still reaped', existsSync(lock) && runnerGone && sim.child.signalCode !== null, `lockStillPresent=${existsSync(lock)} runnerGone=${runnerGone} simSig=${sim?.child.signalCode ?? 'null'}`)
+    step('unknown-owner lock preserved while owned cleanup succeeds', existsSync(lock) && runnerGone && sim.child.signalCode !== null && releaseError === undefined, `lockStillPresent=${existsSync(lock)} runnerGone=${runnerGone} simSig=${sim?.child.signalCode ?? 'null'} error=${releaseError?.code ?? 'none'}`)
   } finally {
     await runtime.dispose()
     await mock.close()
+  }
+}
+
+// 7d. Unproven owned cleanup is an explicit BUSY failure, and dispose does
+// not silently report success while retaining the lock/run diagnostics.
+{
+  const src = makeSourceTree()
+  const state = join(TMP, 'unproven-state')
+  const serverPort = 30108
+  const mock = await startMockWda(serverPort)
+  const captured = { spawns: [] }
+  const toolchain = makeToolchain()
+  let clock = 0
+  let accelerate = false
+  const runtime = createSimulatorWdaInputRuntime(makeRuntimeOptions({
+    source: src,
+    toolchain,
+    state,
+    captured,
+    serverPort,
+    overrides: {
+      now: () => accelerate ? (clock += 6_000) : Date.now(),
+      fake: { launcherFailTerm: true, runnerFailTerm: true, runnerFailKill: true },
+    },
+  }))
+  try {
+    await runtime.ensure(UDID)
+    accelerate = true
+    const releases = await Promise.allSettled([runtime.release(UDID), runtime.release(UDID)])
+    const releaseError = releases.find(result => result.status === 'rejected')?.reason
+    const lock = join(state, 'locks', `${UDID}.lock.json`)
+    step('concurrent unproven releases share BUSY and retain lock diagnostics', releases.every(result => result.status === 'rejected' && result.reason instanceof SimulatorWdaInputError && result.reason.code === 'BUSY') && existsSync(lock), `error=${releaseError?.code ?? 'none'} lock=${existsSync(lock)}`)
+    let disposeError
+    try { await runtime.dispose() } catch (error) { disposeError = error }
+    step('dispose does not hide unproven cleanup', disposeError instanceof SimulatorWdaInputError && disposeError.code === 'BUSY')
+    let disposeAgainError
+    try { await runtime.dispose() } catch (error) { disposeAgainError = error }
+    step('second dispose preserves BUSY result', disposeAgainError instanceof SimulatorWdaInputError && disposeAgainError.code === 'BUSY')
+  } finally {
+    await mock.close()
+  }
+}
+
+// 7e. dispose attempts every owned lease even when one cleanup is BUSY.
+{
+  const src = makeSourceTree()
+  const state = join(TMP, 'multi-state')
+  const serverPort = 30110
+  const mock = await startMockWda(serverPort)
+  const captured = { spawns: [] }
+  const toolchain = makeToolchain()
+  let clock = 0
+  let accelerate = false
+  const runtime = createSimulatorWdaInputRuntime(makeRuntimeOptions({
+    source: src, toolchain, state, captured, serverPort,
+    overrides: {
+      now: () => accelerate ? (clock += 6_000) : Date.now(),
+      fake: {
+        launcherFailTerm: false,
+        runnerFailTerm: false,
+        runnerFailKill: false,
+        runnerPolicy: udid => udid === UDID ? { failTerm: true, failKill: true } : {},
+      },
+    },
+  }))
+  const UDID2 = '8028B135-A568-4E7F-B47A-539C8710136D'
+  try {
+    await runtime.ensure(UDID)
+    await runtime.ensure(UDID2)
+    const simRuns = captured.spawns.filter(s => s.args.includes('simctl'))
+    step('multi-device fake runner pids are unique', new Set(simRuns.map(s => s.runnerPid)).size === simRuns.length)
+    await mock.close()
+    accelerate = true
+    let disposeError
+    try { await runtime.dispose() } catch (error) { disposeError = error }
+    const lock1 = join(state, 'locks', `${UDID}.lock.json`)
+    const lock2 = join(state, 'locks', `${UDID2}.lock.json`)
+    step('dispose cleans other owned leases before raising first BUSY', disposeError?.code === 'BUSY' && existsSync(lock1) && !existsSync(lock2), `error=${disposeError?.code ?? 'none'} lock1=${existsSync(lock1)} lock2=${existsSync(lock2)} runs=${captured.spawns.filter(s => s.args.includes('simctl')).map(s => `${s.args[2]}:${s.runner?.failTerm}/${s.runner?.failKill}/${s.runner?.alive}`).join(',')}`)
+  } finally {
+    try { await mock.close() } catch {}
   }
 }
 

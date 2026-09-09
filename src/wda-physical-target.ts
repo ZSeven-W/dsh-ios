@@ -176,6 +176,8 @@ export interface PhysicalTargetedTransport {
 
 export interface PhysicalTargetedTransportOptions {
   udid: string
+  /** Hardware UDID used only for usbmuxd; `udid` remains the logical identity. */
+  hardwareUdid?: string
   /** On-device WDA control port. Defaults to PHYSICAL_WDA_CONTROL_PORT. */
   devicePort?: number
   portStart?: number
@@ -346,6 +348,10 @@ export async function createPhysicalTargetedTransport(
     throw new PhysicalTargetedTransportError('transport creation was cancelled', 'physical.targeted.transport.cancelled')
   }
   const devicePort = options.devicePort ?? PHYSICAL_WDA_CONTROL_PORT
+  const hardwareUdid = options.hardwareUdid ?? udid
+  if (typeof hardwareUdid !== 'string' || hardwareUdid === '') {
+    throw new TypeError('dsh-ios: createPhysicalTargetedTransport requires a non-empty hardwareUdid')
+  }
   const requestTimeoutMs = options.requestTimeoutMs ?? PHYSICAL_TARGETED_REQUEST_TIMEOUT_MS
   const maxBodyBytes = options.maxBodyBytes ?? PHYSICAL_TARGETED_MAX_BODY_BYTES
   const localPort = await pickOwnLoopbackPort(
@@ -355,7 +361,7 @@ export async function createPhysicalTargetedTransport(
   let forward: UsbmuxForward
   try {
     forward = await (options.createForward ?? createUsbmuxForward)({
-      udid,
+      udid: hardwareUdid,
       devicePort,
       localPort,
       host: TRANSPORT_HOST,

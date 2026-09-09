@@ -355,6 +355,56 @@ function makePhysicalBackend(overrides = {}) {
   return { backend, transport, reader, get wdaEnsure() { return wdaEnsure }, get created() { return created } }
 }
 
+await tryStep('CoreDevice logical id maps to hardware UDID before default transport', async () => {
+  let mapped
+  const bundle = makePhysicalBackend({
+    transportFactory: async (udid, options) => {
+      mapped = { udid, hardwareUdid: options?.hardwareUdid }
+      return makeFakeTransport()
+    },
+  })
+  // The production source resolves through realDevices.resolve; this seam
+  // makes the CoreDevice→hardware mapping explicit without opening usbmuxd.
+  bundle.backend = createIosQaBackend({
+    simDevices: { list: async () => [], matches: async () => false },
+    realDevices: { list: async () => [], matches: async ref => ref === REAL_UDID, resolve: async () => ({ udid: 'CORE-LOGICAL', hardwareUdid: REAL_UDID, name: 'Phone', state: 'available', pairingState: 'paired' }) },
+    wda: bundle.backend,
+    physicalTargeted: { readAppIdentity: makeReader({ pid: TT_PID }), resolveHardwareUdid: async () => REAL_UDID, transportFactory: async (udid, options) => { mapped = { udid, hardwareUdid: options?.hardwareUdid }; return makeFakeTransport() } },
+  })
+  await bundle.backend.typeTarget(physicalTarget())
+  step('logical transport identity is preserved', mapped?.udid === REAL_UDID)
+  step('hardware UDID is passed to the transport seam', mapped?.hardwareUdid === REAL_UDID, JSON.stringify(mapped))
+})
+
+await tryStep('missing hardware UDID rejects before transport creation', async () => {
+  let created = 0
+  const backend = createIosQaBackend({
+    simDevices: { list: async () => [], matches: async () => false },
+    realDevices: { list: async () => [], matches: async ref => ref === REAL_UDID },
+    wda: makePhysicalBackend().backend,
+    physicalTargeted: {
+      readAppIdentity: makeReader({ pid: TT_PID }),
+      resolveHardwareUdid: async () => undefined,
+      transportFactory: async () => { created += 1; return makeFakeTransport() },
+    },
+  })
+  const result = await backend.typeTarget(physicalTarget())
+  step('missing hardware maps to fail-closed identity rejection', result.code === 'APP_IDENTITY_MISMATCH' && result.dispatched === false, JSON.stringify(result))
+  step('missing hardware never creates transport', created === 0)
+})
+
+await tryStep('hardware input is accepted only when CoreDevice resolution agrees', async () => {
+  let created = 0
+  const backend = createIosQaBackend({
+    simDevices: { list: async () => [], matches: async () => false },
+    realDevices: { list: async () => [], matches: async ref => ref === REAL_UDID, resolve: async () => ({ udid: 'CORE-LOGICAL', hardwareUdid: REAL_UDID, name: 'Phone', state: 'available', pairingState: 'paired' }) },
+    wda: makePhysicalBackend().backend,
+    physicalTargeted: { readAppIdentity: makeReader({ pid: TT_PID }), transportFactory: async () => { created += 1; return makeFakeTransport() } },
+  })
+  const result = await backend.typeTarget(physicalTarget())
+  step('resolved hardware input reaches transport', result.dispatched === true && created === 1, JSON.stringify(result))
+})
+
 function physicalTarget(overrides = {}) {
   return { udid: REAL_UDID, bundleId: TT_BUNDLE, identifier: TT_ELEMENT, frame: { ...TT_FRAME }, text: 'QAProbeText', ...overrides }
 }

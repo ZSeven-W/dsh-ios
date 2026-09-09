@@ -220,6 +220,9 @@ export function parseXmlPlist(xml: string): unknown {
     if (skipTagEnd()) {
       if (name === 'true') return true
       if (name === 'false') return false
+      if (name === 'array') return []
+      if (name === 'dict') return {}
+      if (name === 'string' || name === 'data') return ''
       throw new Error(`dsh-ios: unexpected self-closing plist element <${name}/>`)
     }
     if (name === 'plist') {

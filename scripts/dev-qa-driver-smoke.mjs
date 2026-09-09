@@ -201,6 +201,41 @@ await tryStep('physical observe maps WDA SecureTextField without emitting value'
   )
 })
 
+await tryStep('owned physical WDA stops only its exact device on releaseDevice', async () => {
+  let ensures = 0; let stops = 0
+  let ensuredUdid
+  const owned = { async ensureRunning({ udid }) { ensuredUdid = udid; ensures += 1; return { udid, hardwareUdid: udid, controlUrl: 'http://127.0.0.1:8100', mjpegUrl: 'http://127.0.0.1:9100', sessionId: 'owned' } }, async stop() { stops += 1 }, status() { return { available: true, running: true, device: realDevice.udid, consumers: 0 } }, acquire() { return () => {} }, release() {}, mjpegUrl: undefined, control: { async source() { return '<XCUIElementTypeApplication name="QA Fixture"><XCUIElementTypeStaticText name="Ready" label="Ready" value="Ready" x="0" y="0" width="40" height="20"/></XCUIElementTypeApplication>' }, async setSnapshotDepth() {}, async windowSize() { return { width: 402, height: 874 } }, async activeAppInfo() { return { pid: 111, bundleId: TT_BUNDLE } }, async screenshot() { return { pngBase64: 'Zg==', width: 402, height: 874 } }, async tap() {}, async dragFromToForDuration() {}, async typeText() {}, async pressButton() {}, async lock() {}, async unlock() {}, async activateSiri() {}, async setOrientation() {} } }
+  const backend = createIosQaBackend({ simDevices: { list: async () => [] }, realDevices: { list: async () => [realDevice], matches: async ref => ref === realDevice.udid }, resolveSigningTeam: async () => ({ teamId: 'TEAM', source: 'option', detail: 'smoke' }), stagePhysicalWda: async () => ({ stageDir: '/tmp/wda' }), wdaFactory: () => owned })
+  await backend.observe(realDevice.udid); await backend.releaseDevice(realDevice.udid)
+  step('owned WDA ensured then stopped once', ensures === 1 && stops === 1, `ensures=${ensures} stops=${stops} ensuredUdid=${ensuredUdid} releaseUdid=${realDevice.udid}`)
+  await backend.dispose()
+})
+
+await tryStep('releaseDevice does not stop another device or an injected WDA', async () => {
+  let stops = 0
+  const fake = { async ensureRunning({ udid }) { return { udid, hardwareUdid: udid, controlUrl: '', mjpegUrl: '', sessionId: 'injected' } }, async stop() { stops += 1 }, status() { return { available: true, running: true, consumers: 0 } }, acquire() { return () => {} }, release() {}, mjpegUrl: undefined, control: { async source() { return '<XCUIElementTypeApplication name="QA Fixture"/>' }, async setSnapshotDepth() {}, async windowSize() { return { width: 402, height: 874 } }, async activeAppInfo() { return { pid: 111, bundleId: TT_BUNDLE } }, async screenshot() { return { pngBase64: 'Zg==', width: 402, height: 874 } }, async tap() {}, async dragFromToForDuration() {}, async typeText() {}, async pressButton() {}, async lock() {}, async unlock() {}, async activateSiri() {}, async setOrientation() {} } }
+  const backend = createIosQaBackend({ simDevices: { list: async () => [] }, realDevices: { list: async () => [realDevice], matches: async ref => ref === realDevice.udid }, wda: fake })
+  await backend.releaseDevice('OTHER-DEVICE'); step('injected WDA is never stopped', stops === 0)
+  await backend.dispose()
+})
+
+await tryStep('a later owned ensure supersedes an older device binding', async () => {
+  const devices = [{ ...realDevice, udid: 'A' }, { ...realDevice, udid: 'B' }]
+  let current = ''; let stops = 0
+  const owned = { async ensureRunning({ udid }) { current = udid; return { udid, hardwareUdid: udid, controlUrl: '', mjpegUrl: '', sessionId: udid } }, async stop() { stops += 1 }, status() { return { available: true, running: true, device: current, consumers: 0 } }, acquire() { return () => {} }, release() {}, mjpegUrl: undefined, control: { async source() { return '<XCUIElementTypeApplication name="QA Fixture"><XCUIElementTypeStaticText name="Ready" label="Ready" value="Ready" x="0" y="0" width="40" height="20"/></XCUIElementTypeApplication>' }, async setSnapshotDepth() {}, async windowSize() { return { width: 402, height: 874 } }, async activeAppInfo() { return { pid: 111, bundleId: TT_BUNDLE } }, async screenshot() { return { pngBase64: 'Zg==', width: 402, height: 874 } }, async tap() {}, async dragFromToForDuration() {}, async typeText() {}, async pressButton() {}, async lock() {}, async unlock() {}, async activateSiri() {}, async setOrientation() {} } }
+  const backend = createIosQaBackend({ simDevices: { list: async () => [] }, realDevices: { list: async () => devices, matches: async ref => ref === 'A' || ref === 'B' }, resolveSigningTeam: async () => ({ teamId: 'TEAM', source: 'option', detail: 'smoke' }), stagePhysicalWda: async () => ({ stageDir: '/tmp/wda' }), wdaFactory: () => owned })
+  await backend.observe('A'); await backend.observe('B'); await backend.releaseDevice('A'); step('older device does not stop newer WDA', stops === 0); await backend.releaseDevice('B'); step('current device stops owned WDA', stops === 1); await backend.dispose()
+})
+
+await tryStep('owned WDA stop failure propagates as typed cleanup error', async () => {
+  const owned = { async ensureRunning({ udid }) { return { udid, hardwareUdid: udid, controlUrl: '', mjpegUrl: '', sessionId: 'failure' } }, async stop() { throw new Error('stop failed') }, status() { return { available: true, running: true, device: realDevice.udid, consumers: 0 } }, acquire() { return () => {} }, release() {}, mjpegUrl: undefined, control: { async source() { return '<XCUIElementTypeApplication name="QA Fixture"><XCUIElementTypeStaticText name="Ready" label="Ready" value="Ready" x="0" y="0" width="40" height="20"/></XCUIElementTypeApplication>' }, async setSnapshotDepth() {}, async windowSize() { return { width: 402, height: 874 } }, async activeAppInfo() { return { pid: 111, bundleId: TT_BUNDLE } }, async screenshot() { return { pngBase64: 'Zg==', width: 402, height: 874 } }, async tap() {}, async dragFromToForDuration() {}, async typeText() {}, async pressButton() {}, async lock() {}, async unlock() {}, async activateSiri() {}, async setOrientation() {} } }
+  const backend = createIosQaBackend({ simDevices: { list: async () => [] }, realDevices: { list: async () => [realDevice], matches: async ref => ref === realDevice.udid }, resolveSigningTeam: async () => ({ teamId: 'TEAM', source: 'option', detail: 'smoke' }), stagePhysicalWda: async () => ({ stageDir: '/tmp/wda' }), wdaFactory: () => owned })
+  await backend.observe(realDevice.udid); let thrown
+  try { await backend.releaseDevice(realDevice.udid) } catch (error) { thrown = error }
+  step('stop failure is typed and not treated as success', thrown?.code === 'wda.release-failed', thrown?.message)
+  await backend.dispose().catch(() => {})
+})
+
 await tryStep('observe maxNodes truncates honestly and reports depth', async () => {
   const deepRoot = sanitizeAxeNode({
     type: 'Application',
