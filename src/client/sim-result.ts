@@ -5,7 +5,7 @@
  * card shows as its caption.
  */
 
-import type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ToolCallBlock } from '@deepseek-ai/dsh-client-ui-conversation/client'
 
 export interface SimResultSummary {
   bytes?: number

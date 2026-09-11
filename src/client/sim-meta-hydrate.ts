@@ -36,7 +36,7 @@
  * @module @zseven-w/dsh-ios/client/sim-meta-hydrate
  */
 
-import type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ToolCallBlock } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { IOS_SIM_CARD_TOOLS, parseSimMeta, type SimDeviceInfo, type SimMeta } from './protocol.js'
 
 /** Where a card's presentation meta came from (debuggability only). */

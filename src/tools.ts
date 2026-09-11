@@ -16,9 +16,9 @@
 import {
   ToolArgsError,
   defineTool,
-  type JsonValue,
   type ToolDefinition,
 } from '@deepseek-ai/dsh-tools'
+import type { JsonValue } from './json-value.js'
 import { closeSync, existsSync, mkdirSync, openSync, readSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import {
   filterInstalledApps,

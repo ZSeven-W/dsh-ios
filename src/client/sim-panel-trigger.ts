@@ -1,7 +1,7 @@
 /**
- * Row-click trigger for the plugin-owned simulator panel (the rc.6 fallback
- * surface — the per-tool `tool.details.toolview` seat is not declared by the
- * installed runtime, so this package opens its own right-side panel).
+ * Row-click trigger for the plugin-owned simulator panel (DSH 0.1.5 declares
+ * no keyed per-tool details-column seat, so this package opens its own
+ * right-side panel).
  *
  * Cards register their settled, meta-carrying results in the source registry
  * as they mount. A document-level capture listener turns a click on that
@@ -9,8 +9,7 @@
  * open request — the same gesture DSH uses to open 详情 for a tool. Clicks on
  * interactive elements (buttons/links), on the live frame itself (which is
  * tap/drag surface for the simulator), and inside the panel never trigger.
- * The listener is installed only while the per-tool details seat is absent
- * and is disposed if a runtime later declares it.
+ * The listener is installed for the lifetime of the client plugin.
  *
  * Every source carries the framework-supplied `sessionId` of the card that
  * registered it, and cards unregister on unmount — so after a session switch
@@ -20,7 +19,7 @@
  */
 
 import { useEffect } from 'react'
-import type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ToolCallBlock } from '@deepseek-ai/dsh-client-ui-conversation/client'
 
 export interface SimulatorPanelSource {
   sessionId: string

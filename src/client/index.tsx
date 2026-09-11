@@ -8,16 +8,14 @@
  * throwing slot component never takes down the conversation, and theme/locale
  * are synced through the host services exactly like dsh-openpencil.
  *
- * The simulator display lives ONLY in the persistent right-side panel
- * (Codex-style): the per-tool `tool.details.toolview` details seat is
- * registered through the same `ctx.slots.inject` guard dsh-openpencil uses,
- * so a future DSH runtime that declares it gets the native details surface
- * for free. The installed rc.6 runtime does NOT declare that seat (its
- * details column is the single-occupant `conversation.details.tool`), so on
- * rc.6 the plugin mounts its own page-owned right panel host (openpencil's
- * fallback-workbench mechanism) and opens it when the user clicks a
- * simulator tool row. The row-click trigger steps aside if the details seat
- * ever gets declared. Inline tool cards are compact one-line summaries
+ * The simulator display lives ONLY in the persistent right-side panel: DSH
+ * 0.1.5 declares no keyed per-tool details-column seat (`tool.details.toolview`
+ * and `DetailsToolOwnerProps` were removed with the rc.6 runtime, and the
+ * rightbar is a dockkit tab surface), so the plugin mounts its own page-owned
+ * right panel host (openpencil's fallback-workbench mechanism) and opens it
+ * when the user clicks a simulator tool row. The per-tool cards register on
+ * the real 0.1.5 `tool.call.toolview` seat, and the row-click trigger is
+ * always installed. Inline tool cards are compact one-line summaries
  * (title, device, badge, "open in sidebar" cue) with NO imagery.
  *
  * A stream-status capsule is registered in the `conversation.input.dock`
@@ -32,8 +30,10 @@
  */
 
 import { useSyncExternalStore } from 'react'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
@@ -43,11 +43,9 @@ import { SimScreenshotCard } from './sim-screenshot-card.js'
 import { SimBuildRunCard } from './sim-build-run-card.js'
 import { SimRealStartCard } from './sim-real-start-card.js'
 import { IOS_SIM_CARD_TOOLS } from './protocol.js'
-import { SimulatorDetailsPanel } from './sim-panel.js'
 import { mountSimulatorPanelHost, type SimulatorPanelHost } from './sim-panel-host.js'
 import { installSimPanelRowTrigger, type SimulatorPanelSource } from './sim-panel-trigger.js'
 import { SimStatusCapsule } from './sim-status-capsule.js'
-import type { CompatibleToolDetailsViewProps } from './details-compat.js'
 
 // Re-exported so the dev-card-smoke script reuses the card's exact wire
 // helpers (grant bodies, ws frame encoding) from the built bundle.
@@ -353,45 +351,6 @@ function registerCard(
   ))
 }
 
-/** Register one per-tool `tool.details.toolview` slot (openpencil shape). */
-function registerDetailsPanel(
-  ctx: ClientContext,
-  toolName: string,
-  onDetailsSlotDeclared: () => (() => void),
-): void {
-  ctx.slots.inject('tool.details.toolview', () => {
-    const disposeRegistration = ctx.slots.register(
-      { name: 'tool.details.toolview', key: toolName },
-      hostSyncedDetailsPanel(ctx),
-    )
-    // A declaring runtime activates the native details seat: the rc.6
-    // fallback (page-owned panel + row-click trigger) steps aside. Noop on
-    // rc.6, where `inject` waits forever for a slot that never appears.
-    const disposeFallback = onDetailsSlotDeclared()
-    return [disposeRegistration, disposeFallback]
-  })
-}
-
-function hostSyncedDetailsPanel(
-  ctx: ClientContext,
-): (props: CompatibleToolDetailsViewProps) => React.JSX.Element {
-  const subscribeTheme = subscribeThemeOf(ctx)
-  const getColorScheme = getColorSchemeOf(ctx)
-  const subscribeLocale = subscribeLocaleOf(ctx)
-  const getLocale = getLocaleOf(ctx)
-
-  const HostSyncedDetailsPanel = (props: CompatibleToolDetailsViewProps): React.JSX.Element => {
-    const colorScheme = useSyncExternalStore(subscribeTheme, getColorScheme, getColorScheme)
-    const locale = useSyncExternalStore(subscribeLocale, getLocale, getLocale)
-    return (
-      <SimCardBoundary>
-        <SimulatorDetailsPanel {...props} colorScheme={colorScheme} locale={locale} />
-      </SimCardBoundary>
-    )
-  }
-  return HostSyncedDetailsPanel
-}
-
 /** Cross-version minimum for the session-scoped input-dock seat. */
 interface CompatibleInputDockProps {
   sessionId: string
@@ -412,22 +371,14 @@ function hostSyncedStatusCapsule(
   return HostSyncedStatusCapsule
 }
 
-const PANEL_TOOLS = [
-  IOS_SIM_CARD_TOOLS.boot,
-  IOS_SIM_CARD_TOOLS.buildRun,
-  IOS_SIM_CARD_TOOLS.interact,
-  IOS_SIM_CARD_TOOLS.screenshot,
-] as const
-
 /** Register canonical views plus the resident simulator panel surfaces. */
 export function apply(ctx: ClientContext): void {
-  // rc.6 fallback surface: a page-owned right panel host (openpencil's
-  // fallback-workbench mechanism) opened by clicking a simulator tool row.
-  // Declared up front so the START cards can be handed the auto-open callback
-  // that resolves through it.
+  // DSH 0.1.5 declares no keyed per-tool details-column seat, so the
+  // page-owned right panel host (openpencil's fallback-workbench mechanism)
+  // is the permanent simulator surface. Declared up front so the START cards
+  // can be handed the auto-open callback that resolves through it.
   let panelHost: SimulatorPanelHost | undefined
   let rowTriggerDispose: (() => void) | undefined
-  const detailsSlotDeclared = (): boolean => ctx.slots.spec('tool.details.toolview') !== undefined
 
   // Auto-open: a settled START verb opens the panel once. openIfIdle (not
   // open) so a settle never replaces an already-open panel.
@@ -440,20 +391,6 @@ export function apply(ctx: ClientContext): void {
   registerCard(ctx, IOS_SIM_CARD_TOOLS.interact, SimScreenshotCard)
   registerCard(ctx, IOS_SIM_CARD_TOOLS.buildRun, SimBuildRunCard)
   registerCard(ctx, IOS_SIM_CARD_TOOLS.realStart, SimRealStartCard, autoOpenSource)
-
-  const stepFallbackAside = (): (() => void) => {
-    rowTriggerDispose?.()
-    rowTriggerDispose = undefined
-    panelHost?.close()
-    return () => {}
-  }
-
-  // Per-tool details seat (Codex-style right panel). `slots.inject` waits
-  // while the slot is undeclared — rc.6 never declares it, so this degrades
-  // silently and the page-owned host below carries the surface instead.
-  for (const toolName of PANEL_TOOLS) {
-    registerDetailsPanel(ctx, toolName, stepFallbackAside)
-  }
 
   // Stream-status capsule in the composer input dock (openpencil's
   // selection-chip seat, same `ctx.slots.inject` guard and entry shape):
@@ -472,9 +409,7 @@ export function apply(ctx: ClientContext): void {
         subscribeLocale: subscribeLocaleOf(ctx),
         getLocale: getLocaleOf(ctx),
       })
-      if (!detailsSlotDeclared()) {
-        rowTriggerDispose = installSimPanelRowTrigger(document, source => panelHost?.open(source) ?? false)
-      }
+      rowTriggerDispose = installSimPanelRowTrigger(document, source => panelHost?.open(source) ?? false)
       return () => {
         rowTriggerDispose?.()
         rowTriggerDispose = undefined

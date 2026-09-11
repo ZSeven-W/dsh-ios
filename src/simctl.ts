@@ -56,7 +56,7 @@ function execSimctl(args: readonly string[], timeoutMs: number, signal?: AbortSi
         reject(new SimctlError(
           `simctl ${args.join(' ')} failed${detail === '' ? '' : `: ${detail}`}`,
           stderr,
-          error.code,
+          error.code ?? undefined,
         ))
         return
       }

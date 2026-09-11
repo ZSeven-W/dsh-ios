@@ -13,9 +13,9 @@
 
 import {
   defineTool,
-  type JsonValue,
   type ToolDefinition,
 } from '@deepseek-ai/dsh-tools'
+import type { JsonValue } from './json-value.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {

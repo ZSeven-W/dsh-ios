@@ -31,7 +31,7 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { CSSProperties } from 'react'
-import type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ToolCallBlock } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { simCopy, type SimLocale } from './copy.js'
 import {
   IOS_SIM_CARD_TOOLS,
@@ -85,8 +85,6 @@ export function simStreamStatusRequestOf(
     callTime: Date.now(),
     content: [],
     isError: false,
-    callView: null,
-    resultView: null,
     subCalls: [],
     meta: { kind: 'sim-stream', device },
   }

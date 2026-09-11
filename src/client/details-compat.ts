@@ -1,31 +1,29 @@
 /**
- * Compatibility boundary for DSH builds that declare a keyed per-tool details
- * seat (the Codex-style right details panel).
+ * Compatibility boundary for the per-tool details/toolview contract.
  *
- * The installed rc.6 runtime does NOT declare `tool.details.toolview` — its
- * tool package only declares `tool.call.toolview`, and the details column
- * body is the single-occupant `conversation.details.tool` seat (declared by
- * dsh-client-ui-conversation, "one occupant, so taking it means rendering
- * every tool's output"). Mirroring dsh-openpencil, this module keeps the
- * proposed additive contract local: at runtime `ctx.slots.inject()` simply
- * waits while the slot is absent, so on rc.6 the plugin's page-owned right
- * panel host (sim-panel-host) carries the surface instead. A future
- * supporting host activates the native seat without code changes, and the
- * panel host's row-click trigger steps aside when it sees the declaration.
+ * DSH 0.1.5 removed the rc.6-era keyed right-column details seat: neither
+ * `tool.details.toolview` nor `DetailsToolOwnerProps` exists any more, and
+ * the right bar (`rightbar.session`, declared by dsh-client-ui-layout and
+ * occupied by the dockkit sidebar) exposes no per-tool keyed seat to
+ * plugins. The actual 0.1.5 per-tool contract is `tool.call.toolview`
+ * (keyed by wire tool name, session scope), declared by
+ * `@deepseek-ai/dsh-client-ui-tool/client`. Its owner receives the call
+ * identity, the frozen running-or-settled `ToolCallBlock`, the workspace
+ * cwd/home, `openFile`, `loadImage`, and an optional `inspect` (see
+ * `ToolCallOwnerProps` in that package's contract/slots.d.ts).
+ *
+ * The plugin registers its compact per-tool cards on that real seat
+ * (index.tsx) and keeps the persistent simulator display on its own
+ * page-owned panel host (sim-panel-host.tsx), because 0.1.5 declares no
+ * native details-column seat for tool-specific surfaces.
  */
 
-import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { DetailsToolOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
 
-declare module '@deepseek-ai/dsh-client-ui-slots' {
-  interface SlotMap {
-    'tool.details.toolview': {
-      kind: 'keyed'
-      scope: 'session'
-      owner: DetailsToolOwnerProps
-    }
-  }
-}
-
-/** Details props without importing a symbol absent from current DSH releases. */
-export type CompatibleToolDetailsViewProps = PropsRuntime<'tool.details.toolview'>
+/**
+ * The props one per-tool view receives from the 0.1.5 slot framework: the
+ * composed props of the real `tool.call.toolview` seat (owner share plus
+ * session standard props). Kept as a named alias so panel code states its
+ * contract against the actual host instead of the removed rc.6 type.
+ */
+export type CompatibleToolDetailsViewProps = ToolCallViewProps

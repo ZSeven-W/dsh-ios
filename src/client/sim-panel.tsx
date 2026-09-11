@@ -47,9 +47,9 @@
  * shared hooks); `SimulatorPanelBody`, `SimPhoneFrame`, `SimLiveIndicator`,
  * `SimLiveFrameBody`, and `SimScreenshotFrameBody` are pure presentation the
  * dev-panel-smoke script server-renders phase by phase without a browser or
- * network. The same body renders inside the plugin-owned right panel host
- * (rc.6 fallback surface) and inside the per-tool `tool.details.toolview`
- * seat when a future DSH runtime declares it.
+ * network. The same body renders inside the plugin-owned right panel host —
+ * DSH 0.1.5 declares no keyed per-tool details-column seat, so the page-owned
+ * host is the permanent simulator surface.
  *
  * Device switch: in stream, real-device and screenshot mode the header's
  * static device subtitle is replaced by a token-styled device picker (see
@@ -95,7 +95,7 @@
 
 import { useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore } from 'react'
 import type { CSSProperties, ReactNode, RefObject } from 'react'
-import type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ToolCallBlock } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { simCopy, type SimCopy, type SimLocale } from './copy.js'
 import {
   IOS_SIM_CARD_TOOLS,
@@ -2005,9 +2005,8 @@ export interface SimulatorDetailsPanelProps {
 }
 
 /**
- * Per-tool details-seat renderer for DSH runtimes that declare
- * `tool.details.toolview` (absent in rc.6 — registration is guarded by
- * `ctx.slots.inject`, exactly like dsh-openpencil). The native details column
+ * Per-tool details renderer typed against the real 0.1.5 per-tool seat
+ * (`tool.call.toolview`, see details-compat.ts). A native details column
  * supplies its own header and close control, so the panel body renders
  * without `onClose`.
  */

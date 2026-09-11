@@ -1,7 +1,7 @@
 /**
  * Page-stable owner for the plugin fallback simulator panel.
  *
- * Mirrors dsh-openpencil's `mountEditorWorkbenchHost`: the rc.6 runtime has
+ * Mirrors dsh-openpencil's `mountEditorWorkbenchHost`: DSH 0.1.5 has
  * no per-tool details seat, so the plugin mounts its own imperative React
  * root on `document.body` and docks the panel as a fixed right-hand column
  * that stays visible while the conversation scrolls. A dock lease on the DSH
@@ -29,7 +29,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useReducer, useRef, useState, useSyncExternalStore } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
-import type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ToolCallBlock } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { SimulatorPanel, type SimPanelDisplayReport } from './sim-panel.js'
 import { simCopy } from './copy.js'
 import { claimSimulatorPanelDock, type SimulatorPanelDockLease } from './sim-panel-dock.js'
@@ -79,8 +79,6 @@ export function simSwitchedPanelRequestOf(
     callTime: Date.now(),
     content: [],
     isError: false,
-    callView: null,
-    resultView: null,
     subCalls: [],
     meta: simSwitchedStreamMetaOf(result),
   }
