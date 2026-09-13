@@ -59,7 +59,7 @@
     "test:wda-targeted-text": "node scripts/dev-wda-targeted-text-smoke.mjs",
     "test:qa-physical-targeted": "node scripts/dev-qa-physical-targeted-smoke.mjs",
     "test:qa-runtime": "node scripts/dev-wda-physical-stage-smoke.mjs && node scripts/dev-usbmux-listener-probe-smoke.mjs && node scripts/dev-qa-physical-default-smoke.mjs && node scripts/dev-qa-sim-recovery-smoke.mjs && node scripts/dev-wda-simulator-input-release-subprocess.mjs",
-    "test": "node scripts/dev-signing-smoke.mjs && node scripts/dev-devicectl-smoke.mjs && node scripts/dev-realtools-smoke.mjs && node scripts/dev-realstart-smoke.mjs && node scripts/dev-panel-smoke.mjs && node scripts/dev-wda-smoke.mjs && node scripts/dev-uitree-smoke.mjs && node scripts/dev-wda-simulator-input-smoke.mjs && node scripts/dev-wda-targeted-text-smoke.mjs && node scripts/dev-qa-driver-smoke.mjs && node scripts/dev-qa-physical-targeted-smoke.mjs && node scripts/dev-logs-smoke.mjs && node scripts/dev-debug-smoke.mjs && npm run test:qa-runtime"
+    "test": "node scripts/dev-plugin-env-smoke.mjs && node scripts/dev-signing-smoke.mjs && node scripts/dev-devicectl-smoke.mjs && node scripts/dev-realtools-smoke.mjs && node scripts/dev-realstart-smoke.mjs && node scripts/dev-panel-smoke.mjs && node scripts/dev-wda-smoke.mjs && node scripts/dev-uitree-smoke.mjs && node scripts/dev-wda-simulator-input-smoke.mjs && node scripts/dev-wda-targeted-text-smoke.mjs && node scripts/dev-qa-driver-smoke.mjs && node scripts/dev-qa-physical-targeted-smoke.mjs && node scripts/dev-logs-smoke.mjs && node scripts/dev-debug-smoke.mjs && npm run test:qa-runtime"
   },
   "packageManager": "pnpm@10.12.1",
   "pnpm": {

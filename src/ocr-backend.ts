@@ -137,7 +137,7 @@ function ocrCacheInstallDir(sourceSha256: string): string {
 /**
  * Resolve the bundled Swift source (`assets/ocr.swift`): an explicit
  * `DSH_IOS_OCR_SWIFT` override wins — and a bad override FAILS (like
- * `DSH_IOS_AXE_BIN`) instead of silently falling through — then the path
+ * `DSHPLUGIN_IOS_AXE_BIN`) instead of silently falling through — then the path
  * relative to this compiled module (works from `lib/` in the repo and
  * inside the installed package), then a cwd-relative fallback for
  * development working copies.

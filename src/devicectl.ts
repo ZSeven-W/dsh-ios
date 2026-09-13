@@ -1107,7 +1107,7 @@ export function chooseSigningTeam(options: ChooseSigningTeamOptions): SigningTea
     return {
       teamId: env,
       source: 'env',
-      detail: appendDetectorErrors('DSH_IOS_TEAM_ID environment override', options.detectorErrors),
+      detail: appendDetectorErrors('DSHPLUGIN_IOS_TEAM_ID environment override', options.detectorErrors),
     }
   }
 

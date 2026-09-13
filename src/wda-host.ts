@@ -68,6 +68,7 @@ import {
   type UsbmuxForwardOptions,
   type UsbmuxTunnelFailure,
 } from './usbmux.js'
+import { pluginEnv } from './plugin-env.js'
 
 /** WDA child process shape: no stdin, piped stdout/stderr. */
 type WdaChild = ChildProcessByStdio<null, Readable, Readable>
@@ -145,9 +146,9 @@ export interface WdaOptions {
   controlPortStart?: number
   /** First local port to try for the MJPEG tunnel (default 9100). */
   mjpegPortStart?: number
-  /** `DEVELOPMENT_TEAM` for automatic signing; overrides `DSH_IOS_TEAM_ID`. */
+  /** `DEVELOPMENT_TEAM` for automatic signing; overrides `DSHPLUGIN_IOS_TEAM_ID`. */
   teamId?: string
-  /** `PRODUCT_BUNDLE_IDENTIFIER` for the runner; overrides `DSH_IOS_WDA_BUNDLE_ID`. */
+  /** `PRODUCT_BUNDLE_IDENTIFIER` for the runner; overrides `DSHPLUGIN_IOS_WDA_BUNDLE_ID`. */
   bundleId?: string
   /** Adopt a pre-existing WDA on the control port (default true). */
   adoptExisting?: boolean
@@ -1351,7 +1352,7 @@ export class WdaController {
 
   constructor(options: WdaOptions = {}) {
     this.tooling = resolveWdaTooling(options.wdaProjectDir ?? DEFAULT_WDA_PROJECT_DIR)
-    const bundle = resolveWdaSetting(options.bundleId, process.env.DSH_IOS_WDA_BUNDLE_ID, DEFAULT_BUNDLE_ID)
+    const bundle = resolveWdaSetting(options.bundleId, pluginEnv('IOS_WDA_BUNDLE_ID'), DEFAULT_BUNDLE_ID)
     const team = resolveWdaSetting(options.teamId, undefined, DEFAULT_TEAM_ID)
     this.#options = {
       wdaProjectDir: options.wdaProjectDir ?? DEFAULT_WDA_PROJECT_DIR,
@@ -1885,7 +1886,7 @@ export class WdaController {
         explicit: this.#teamIdSource === 'option' || this.#teamIdSource === 'env'
           ? this.#options.teamId
           : undefined,
-        env: process.env.DSH_IOS_TEAM_ID,
+        env: pluginEnv('IOS_TEAM_ID'),
         fallback: DEFAULT_TEAM_ID,
       })
       const teamId = resolution.teamId ?? DEFAULT_TEAM_ID

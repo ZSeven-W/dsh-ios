@@ -77,6 +77,7 @@ export type {
   WdaTargetedTextTarget,
   WdaTargetedTextCode,
 } from './wda-targeted-text.js'
+import { pluginEnv } from './plugin-env.js'
 
 // ── Public contract ───────────────────────────────────────────────────────────
 
@@ -645,7 +646,7 @@ class IosQaBackendImpl implements IosQaBackend {
     this.#sim = providedSim ?? new SimHostController()
 
     const wdaOptions = options.wdaOptions ?? {}
-    const envTeam = process.env.DSH_IOS_TEAM_ID?.trim() ?? ''
+    const envTeam = pluginEnv('IOS_TEAM_ID')?.trim() ?? ''
     const explicitTeam = typeof wdaOptions.teamId === 'string' && wdaOptions.teamId.trim() !== ''
     this.#hasWdaSigning = options.wda !== undefined || explicitTeam || envTeam !== ''
     this.#wda = options.wda
@@ -1645,7 +1646,7 @@ class IosQaBackendImpl implements IosQaBackend {
       try {
         resolution = await this.#resolveSigningTeam({
           explicit: this.#wdaOptions.teamId,
-          env: process.env.DSH_IOS_TEAM_ID,
+          env: pluginEnv('IOS_TEAM_ID'),
           fallback: undefined,
           signal,
         })
@@ -1654,7 +1655,7 @@ class IosQaBackendImpl implements IosQaBackend {
       }
       if (resolution.teamId === undefined || resolution.teamId.trim() === '' || resolution.source === 'none') {
         throw new IosQaError(
-          'WebDriverAgent signing team is not configured; set DSH_IOS_TEAM_ID or provide wdaOptions.teamId',
+          'WebDriverAgent signing team is not configured; set DSHPLUGIN_IOS_TEAM_ID or provide wdaOptions.teamId',
           'unsupported.wda.signing-team.unconfigured',
         )
       }
@@ -1682,7 +1683,7 @@ class IosQaBackendImpl implements IosQaBackend {
     }
     if (this.#hasWdaSigning === false && this.#wda !== undefined && this.#ownsWda === false) {
       throw new IosQaError(
-        'WebDriverAgent signing team is not configured; set DSH_IOS_TEAM_ID or provide wdaOptions.teamId',
+        'WebDriverAgent signing team is not configured; set DSHPLUGIN_IOS_TEAM_ID or provide wdaOptions.teamId',
         'unsupported.wda.signing-team.unconfigured',
       )
     }

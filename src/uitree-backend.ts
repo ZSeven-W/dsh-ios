@@ -8,7 +8,7 @@
  * `tap`/`type`/`swipe` drive the simulator through Apple HID.
  *
  * The helper is never a system-wide install. Resolution order:
- *   1. `DSH_IOS_AXE_BIN` (explicit override, e.g. CI);
+ *   1. `DSHPLUGIN_IOS_AXE_BIN` (explicit override, e.g. CI);
  *   2. an `axe` on PATH or in a Homebrew prefix (brew install
  *      cameroncooke/axe/axe lands in /opt/homebrew/bin or /usr/local/bin);
  *   3. the plugin-owned cache `~/Library/Caches/dsh-ios/bin/axe/<version>/`,
@@ -22,7 +22,7 @@
  * later resolution so on-disk corruption or tampering is detected.
  *
  * Degradation mirrors serve-sim: resolution-only when the helper is absent
- * and not downloadable (non-macOS host, offline, `DSH_IOS_AXE_OFFLINE=1`),
+ * and not downloadable (non-macOS host, offline, `DSHPLUGIN_IOS_AXE_OFFLINE=1`),
  * with a clear install hint in the thrown tool error.
  * @module @zseven-w/dsh-ios/uitree-backend
  */
@@ -40,6 +40,7 @@ import {
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
+import { pluginEnv } from './plugin-env.js'
 
 /** AXe release this plugin pins (supports Xcode 26 and 27). */
 export const AXE_VERSION = '1.8.0'
@@ -59,7 +60,7 @@ export const AXE_RELEASE_SHA256 = '7b76340b72e90d0f211bc7c4636f15009076eff07acef
 /** Install hint appended to every helper-unavailable tool error. */
 export const AXE_INSTALL_HINT = 'install the AXe accessibility CLI with "brew install cameroncooke/axe/axe", or let the plugin '
   + 'download the pinned release into ~/Library/Caches/dsh-ios/bin (needs network access to github.com); '
-  + 'set DSH_IOS_AXE_BIN to an existing axe executable to override resolution'
+  + 'set DSHPLUGIN_IOS_AXE_BIN to an existing axe executable to override resolution'
 
 const AXE_CACHE_BASE = join(homedir(), 'Library', 'Caches', 'dsh-ios', 'bin')
 const AXE_DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000
@@ -233,7 +234,7 @@ export function resolveAxeBinary(): AxeBinary {
       installHint: AXE_INSTALL_HINT,
     }
   }
-  const explicit = process.env.DSH_IOS_AXE_BIN
+  const explicit = pluginEnv('IOS_AXE_BIN')
   if (explicit !== undefined && explicit.trim() !== '') {
     if (isExecutableFile(explicit.trim())) {
       return { available: true, source: 'path', command: explicit.trim(), installHint: AXE_INSTALL_HINT }
@@ -241,7 +242,7 @@ export function resolveAxeBinary(): AxeBinary {
     return {
       available: false,
       source: 'unavailable',
-      reason: `DSH_IOS_AXE_BIN points at a missing or non-executable file: ${explicit.trim()}`,
+      reason: `DSHPLUGIN_IOS_AXE_BIN points at a missing or non-executable file: ${explicit.trim()}`,
       installHint: AXE_INSTALL_HINT,
     }
   }
@@ -337,14 +338,14 @@ let downloadPromise: Promise<string> | undefined
 
 /**
  * Resolve the helper, downloading the pinned release into the plugin cache
- * when it is absent (macOS only; skipped with `DSH_IOS_AXE_OFFLINE=1`).
+ * when it is absent (macOS only; skipped with `DSHPLUGIN_IOS_AXE_OFFLINE=1`).
  * Resolution-only failure is never fatal here: the returned object carries
  * the reason and the install hint for the tool to throw.
  */
 export async function ensureAxeBinary(): Promise<AxeBinary> {
   const resolved = resolveAxeBinary()
   if (resolved.available) return resolved
-  if (process.platform !== 'darwin' || process.env.DSH_IOS_AXE_OFFLINE === '1') return resolved
+  if (process.platform !== 'darwin' || pluginEnv('IOS_AXE_OFFLINE') === '1') return resolved
   if (downloadPromise === undefined) {
     downloadPromise = downloadAxeRelease().catch(error => {
       throw new Error(`axe download failed (${error instanceof Error ? error.message : String(error)}); ${AXE_INSTALL_HINT}`)

@@ -129,7 +129,7 @@ DSH iOS 시뮬레이터는 agent에게 대화 안의 진짜 iOS 시뮬레이터�
 - 패널에는 **웹 번들이 포함된 DSH ≥ 0.1.0-rc.6**이 필요합니다. 헤드리스 프로필에서도 사용할 수 있습니다. 22개 도구가 모두 정상적으로 동작하며, 실시간 화면만 제공되지 않습니다.
 - **macOS가 아닌 호스트**: plugin은 로드되고 22개 도구가 모두 등록되지만, 모든 호출이 설명이 담긴 오류를 반환합니다(`iOS Simulator requires macOS with Xcode …`).
 - **serve-sim**은 이 plugin의 npm 의존성으로 함께 배포되므로 실제 설치에서는 로컬로 해석됩니다. 개발 트리에서는 `npx -y serve-sim` 폴백이 사용됩니다(첫 사용 시 네트워크 필요).
-- **AXe** (선택 — AXe 기반 도구에만 필요: `ios_sim_ui_tree` / `ios_sim_tap_element`, 그리고 시뮬레이터에서의 `ios_sim_ui_rows` / `ios_sim_tap_row`): `brew install cameroncooke/axe/axe`로 설치하거나, plugin이 고정 릴리스(v1.8.0, SHA-256 검증)를 `~/Library/Caches/dsh-ios/bin`에 자동 다운로드하게 하세요. `DSH_IOS_AXE_BIN`으로 해석 경로를 재정의할 수 있고, `DSH_IOS_AXE_OFFLINE=1`은 다운로드를 비활성화합니다.
+- **AXe** (선택 — AXe 기반 도구에만 필요: `ios_sim_ui_tree` / `ios_sim_tap_element`, 그리고 시뮬레이터에서의 `ios_sim_ui_rows` / `ios_sim_tap_row`): `brew install cameroncooke/axe/axe`로 설치하거나, plugin이 고정 릴리스(v1.8.0, SHA-256 검증)를 `~/Library/Caches/dsh-ios/bin`에 자동 다운로드하게 하세요. `DSHPLUGIN_IOS_AXE_BIN`으로 해석 경로를 재정의할 수 있고, `DSHPLUGIN_IOS_AXE_OFFLINE=1`은 다운로드를 비활성화합니다.
 - **Vision OCR** (선택 — `ios_sim_find_text` / `ios_sim_tap_text`에만 필요): plugin이 첫 사용 시 번들된 `assets/ocr.swift`를 `swiftc`로 `~/Library/Caches/dsh-ios/bin/ocr`에 컴파일합니다(zh-Hans + en-US 인식).
 - **lldb attach**에는 macOS 개발자 모드가 필요합니다. `sudo DevToolsSecurity -enable`을 한 번 실행하세요. 그 전까지 `ios_sim_backtrace`는 Xcode의 `sample` 엔진(프로세스를 멈추지 않음)을 사용하고, `ios_sim_leaks`는 활성화 힌트와 함께 저하 동작합니다.
 - **실제 iPhone** — USB로 연결되고 화면이 잠금 해제된 iPhone(잠긴 화면에서는 WebDriverAgent를 시작할 수 없습니다.. 첫 WDA 빌드는 서명된 WebDriverAgentRunner를 설치합니다. 메시지가 표시되면 기기에서 인증서를 신뢰하고, 무료 팀 서명 프로필이 만료되면(수명 7일) `ios_real_start_wda`를 다시 실행하세요.
@@ -155,7 +155,7 @@ dsh web
 ## 문제 해결
 
 - **백트레이스가 lldb 대신 `sample`을 사용하거나 leaks가 검사 제한을 불평하는 경우** — macOS 개발자 모드가 꺼져 있습니다. `sudo DevToolsSecurity -enable`을 한 번 실행하고 다시 시도하세요. 그 전까지 도구는 깔끔하게 저하 동작합니다. `ios_sim_backtrace`는 Xcode의 `sample`(심볼화, 프로세스 중단 없음)로 폴백하고, `ios_sim_leaks`는 활성화 힌트를 보고합니다.
-- **`ios_sim_ui_tree` / `ios_sim_tap_element`에 AXe가 필요한 경우** — `brew install cameroncooke/axe/axe`로 설치하거나, plugin이 첫 사용 시 고정 릴리스를 다운로드하게 하세요(github.com 네트워크 필요). 오류 메시지에는 항상 전체 설치 힌트가 포함되어 있으며, `DSH_IOS_AXE_BIN=/path/to/axe`로 해석 경로를 재정의할 수 있습니다. 행 도구(`ios_sim_ui_rows` / `ios_sim_tap_row`)도 시뮬레이터에서는 AXe가 필요합니다.
+- **`ios_sim_ui_tree` / `ios_sim_tap_element`에 AXe가 필요한 경우** — `brew install cameroncooke/axe/axe`로 설치하거나, plugin이 첫 사용 시 고정 릴리스를 다운로드하게 하세요(github.com 네트워크 필요). 오류 메시지에는 항상 전체 설치 힌트가 포함되어 있으며, `DSHPLUGIN_IOS_AXE_BIN=/path/to/axe`로 해석 경로를 재정의할 수 있습니다. 행 도구(`ios_sim_ui_rows` / `ios_sim_tap_row`)도 시뮬레이터에서는 AXe가 필요합니다.
 - **`ios_sim_find_text` / `ios_sim_tap_text`가 OCR 헬퍼가 없다고 보고하는 경우** — 첫 사용 시 번들된 `assets/ocr.swift`를 `swiftc`로(Xcode 필요) `~/Library/Caches/dsh-ios/bin/ocr`에 컴파일합니다. 오류에는 정확한 경로와 힌트가 포함됩니다.
 - **`ios_sim_ui_rows`가 행을 찾지 못하는 경우** — 결과에 이유가 표시됩니다: 깊이가 너무 얕음(`max_depth`를 올리세요. 휴대폰에서는 스냅샷 깊이를 올릴 때마다 약 15–25초 소요), 목록 화면이 아님, 또는 심층 읽기 후에도 정말 접근성 정보 없음. 얕은 읽기가 접근성 정보 부재로 잘못 보고되는 일은 절대 없습니다.
 - **iOS 26.2 시뮬레이터에서의 `ios_sim_leaks`** — iOS 26.2 런타임에서는 개발자 모드가 활성화되어 있어도 Xcode의 `leaks`가 시뮬레이터 프로세스를 검사하지 못하고 `Failed to get DYLD info` 또는 minimal-corpse 같은 치명적 진단 오류를 낼 수 있습니다. 도구는 깔끔하게 저하 동작합니다: 원시 진단이 그대로 반환되고, 대상 프로세스는 항상 재개되었는지 확인되며, 아무것도 멈춰 있지 않습니다. plugin 쪽에서 고칠 수 있는 문제는 없습니다 — 증상이 나타나면 `mode: "memgraph"`나 다른 런타임을 시도하세요..

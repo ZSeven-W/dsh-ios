@@ -242,7 +242,7 @@ try {
     if (process.argv.includes('--skip-download')) {
       warn('fresh-cache download not tested in this focused run', '--skip-download; cached AXe version is still verified')
     } else {
-      const fresh = await withEnv({ DSH_IOS_AXE_DIR: dlDir, DSH_IOS_AXE_OFFLINE: undefined }, async () => {
+      const fresh = await withEnv({ DSH_IOS_AXE_DIR: dlDir, DSHPLUGIN_IOS_AXE_OFFLINE: undefined }, async () => {
         return ensureAxeBinary()
       })
       const digestFile = join(dlDir, 'axe', AXE_VERSION, '.dsh-ios-axe.sha256')
@@ -262,16 +262,28 @@ try {
   step('release digest constant is a well-formed sha256', /^[0-9a-f]{64}$/.test(AXE_RELEASE_SHA256), AXE_RELEASE_SHA256)
 
   // ── C. degradation (resolution-only, no sim needed) ──────────────────────
-  await withEnv({ DSH_IOS_AXE_BIN: '/nonexistent/axe-does-not-exist', DSH_IOS_AXE_OFFLINE: '1' }, async () => {
+  await withEnv({ DSHPLUGIN_IOS_AXE_BIN: '/nonexistent/axe-does-not-exist', DSHPLUGIN_IOS_AXE_OFFLINE: '1' }, async () => {
     const degraded = await ensureAxeBinary()
     step(
       'missing helper degrades with an install hint',
       degraded.available === false
-        && String(degraded.reason).includes('DSH_IOS_AXE_BIN')
+        && String(degraded.reason).includes('DSHPLUGIN_IOS_AXE_BIN')
         && degraded.installHint.includes('brew install cameroncooke/axe/axe'),
       degraded.installHint,
     )
     step('install hint matches the documented brew step', AXE_INSTALL_HINT.includes('brew install cameroncooke/axe/axe'))
+  })
+  // The legacy DSH_-prefixed names must keep steering resolution until 1.0:
+  // a user whose shell already exports them should not lose their override to
+  // a rename (they cannot be used in a .env file either way — the host rejects
+  // that file before the plugin loads, which is why they are being retired).
+  await withEnv({ DSH_IOS_AXE_BIN: '/nonexistent/axe-does-not-exist', DSH_IOS_AXE_OFFLINE: '1' }, async () => {
+    const legacy = await ensureAxeBinary()
+    step(
+      'the legacy DSH_IOS_AXE_BIN name still drives resolution',
+      legacy.available === false && String(legacy.reason).includes('/nonexistent/axe-does-not-exist'),
+      String(legacy.reason).slice(0, 90),
+    )
   })
   const restored = await ensureAxeBinary()
   step('resolution recovers after env restore', restored.available === true, `source=${restored.source}`)
@@ -908,7 +920,7 @@ try {
 
     // Tool-level degradation while the device is booted.
     let degradedError = ''
-    await withEnv({ DSH_IOS_AXE_BIN: '/nonexistent/axe-does-not-exist', DSH_IOS_AXE_OFFLINE: '1' }, async () => {
+    await withEnv({ DSHPLUGIN_IOS_AXE_BIN: '/nonexistent/axe-does-not-exist', DSHPLUGIN_IOS_AXE_OFFLINE: '1' }, async () => {
       try {
         await uiTools.iosSimUiTree.execute({ udid }, makeExec('ios_sim_ui_tree', {}))
       } catch (error) {

@@ -22,6 +22,7 @@ import {
   resolveSigningTeam,
   type RealDevice,
 } from './devicectl.js'
+import { pluginEnv } from './plugin-env.js'
 
 /** How `projectPath` is fed to xcodebuild. */
 export type ProjectKind = 'xcodeproj' | 'xcworkspace' | 'package'
@@ -392,7 +393,7 @@ export async function buildRun(options: BuildRunOptions): Promise<BuildRunResult
       )
     }
     const resolved = await resolveSigningTeam({
-      env: process.env.DSH_IOS_TEAM_ID,
+      env: pluginEnv('IOS_TEAM_ID'),
       fallback: undefined,
       signal,
     })

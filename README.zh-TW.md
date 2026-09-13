@@ -129,7 +129,7 @@ DSH iOS 模擬器讓智慧代理在對話裡擁有一台真正的 iOS 模擬器�
 - **DSH ≥ 0.1.0-rc.6 且使用 Web 版**，才能顯示面板。無頭（headless）設定下外掛程式同樣可用：22 個工具照常工作，只是沒有即時畫面。
 - **非 macOS 主機**：外掛程式依然能載入，22 個工具也會註冊，但每次呼叫都會回傳明確的錯誤訊息（`iOS Simulator requires macOS with Xcode …`）。
 - **serve-sim** 作為本外掛程式的 npm 依賴隨套件安裝，正式安裝時會從本地解析；開發目錄則回退到 `npx -y serve-sim`（首次使用需要連網）。
-- **AXe**（可選——只有基於 AXe 的工具需要：`ios_sim_ui_tree` / `ios_sim_tap_element`，以及模擬器上的 `ios_sim_ui_rows` / `ios_sim_tap_row`）：`brew install cameroncooke/axe/axe`，或讓外掛程式自動下載固定版本（v1.8.0，驗證 SHA-256）到 `~/Library/Caches/dsh-ios/bin`。`DSH_IOS_AXE_BIN` 可覆蓋解析結果；`DSH_IOS_AXE_OFFLINE=1` 可停用下載。
+- **AXe**（可選——只有基於 AXe 的工具需要：`ios_sim_ui_tree` / `ios_sim_tap_element`，以及模擬器上的 `ios_sim_ui_rows` / `ios_sim_tap_row`）：`brew install cameroncooke/axe/axe`，或讓外掛程式自動下載固定版本（v1.8.0，驗證 SHA-256）到 `~/Library/Caches/dsh-ios/bin`。`DSHPLUGIN_IOS_AXE_BIN` 可覆蓋解析結果；`DSHPLUGIN_IOS_AXE_OFFLINE=1` 可停用下載。
 - **Vision OCR**（可選——只有 `ios_sim_find_text` / `ios_sim_tap_text` 需要）：外掛程式首次使用時用 `swiftc` 把內建的 `assets/ocr.swift` 編譯到 `~/Library/Caches/dsh-ios/bin/ocr`（識別 zh-Hans + en-US）。
 - **lldb attach 需要 macOS 開發者模式**：執行一次 `sudo DevToolsSecurity -enable`。在此之前 `ios_sim_backtrace` 會改用 Xcode 的 `sample` 引擎（不掛起處理程序），`ios_sim_leaks` 會帶著開啟提示降級執行。。首次 WDA 建置會安裝簽章的 WebDriverAgentRunner：按提示在裝置上信任其憑證；免費團隊簽章描述檔 7 天過期後需重新執行 `ios_real_start_wda`。
 
@@ -154,7 +154,7 @@ dsh web
 ## 疑難排解
 
 - **backtrace 用的是 `sample` 而不是 lldb，或 leaks 提示受限檢查**——macOS 開發者模式未開啟。執行一次 `sudo DevToolsSecurity -enable` 後重試。在此之前工具會平滑降級：`ios_sim_backtrace` 回退到 Xcode 的 `sample`（已符號化、不掛起處理程序），`ios_sim_leaks` 會給出開啟提示。
-- **`ios_sim_ui_tree` / `ios_sim_tap_element` 需要 AXe**——用 `brew install cameroncooke/axe/axe` 安裝，或讓外掛程式在首次使用時自動下載固定版本（需要能存取 github.com）。錯誤訊息裡始終附帶完整的安裝提示；`DSH_IOS_AXE_BIN=/path/to/axe` 可覆蓋解析結果。列工具（`ios_sim_ui_rows` / `ios_sim_tap_row`）在模擬器上同樣需要 AXe。
+- **`ios_sim_ui_tree` / `ios_sim_tap_element` 需要 AXe**——用 `brew install cameroncooke/axe/axe` 安裝，或讓外掛程式在首次使用時自動下載固定版本（需要能存取 github.com）。錯誤訊息裡始終附帶完整的安裝提示；`DSHPLUGIN_IOS_AXE_BIN=/path/to/axe` 可覆蓋解析結果。列工具（`ios_sim_ui_rows` / `ios_sim_tap_row`）在模擬器上同樣需要 AXe。
 - **`ios_sim_find_text` / `ios_sim_tap_text` 報告缺少 OCR 助手**——首次使用會用 `swiftc`（需要 Xcode）把內建的 `assets/ocr.swift` 編譯到 `~/Library/Caches/dsh-ios/bin/ocr`；錯誤訊息裡帶具體路徑與提示。
 - **`ios_sim_ui_rows` 找不到列**——結果會說明原因：深度太淺（調大 `max_depth`；真機上每次更深快照約 15–25 秒）、不是清單頁，或深度讀取後確實沒有無障礙資訊。淺讀絕不會被誤報為「缺少無障礙支援」。
 - **iOS 26.2 模擬器上的 `ios_sim_leaks` 怪癖**——在 iOS 26.2 執行時期上，即使開發者模式已開啟，Xcode 的 `leaks` 也可能無法分析模擬器處理程序，報出 `Failed to get DYLD info` 或 minimal-corpse 之類的致命診斷。工具會平滑降級：你能看到原始診斷，目標處理程序必定被驗證恢復，不會卡住。外掛程式側沒有修復辦法——遇到時試試 `mode: "memgraph"` 或換一個執行時期。。
