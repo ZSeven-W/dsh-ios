@@ -77,6 +77,11 @@ jobs:
         env:
           DSH_IOS_SMOKE_SKIP_SIM: '1'
 
+      - name: Duo fixture suites (no simulator required)
+        run: pnpm run test:duo
+        env:
+          DSH_IOS_SMOKE_SKIP_SIM: '1'
+
   sim:
     # Experimental: boots a real iOS simulator on the macOS runner. Marked
     # continue-on-error so a flaky simulator boot cannot block a PR.

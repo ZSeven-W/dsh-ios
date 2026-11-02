@@ -1,0 +1,5 @@
+Read-only Duo accessibility helper, protocol: one `get` line → one fresh frontmost hierarchy JSON line. Every request obtains a new native element and closes it after serialization; no tree, PID, frame or application handle is reused between requests. Only the control/session setup persists. The Node owner serializes requests, kills failed/canceled transports, reaps idle readers after 60 seconds, and preserves independent display checks. The helper does not send touches or restart apps.
+
+The universal binary targets macOS 15+. It dynamically uses the plugin's verified, pinned AXe 1.8.0 framework directory. No Apple or AXe runtime libraries are included here. Custom AXe overrides and unsupported layouts keep using the CLI. Native arm64 runtime tested; Intel slice is cross-compiled, not runtime-tested.
+
+Reproduce with `python3 build.py --axe-dir <official AXe 1.8.0 directory> --idb-archive <source tarball>` using Xcode. Build headers are from cameroncooke/idb commit `604c51013438f0c3603b720a05a44b7c5b8f286d`, as pinned by AXe v1.8.0. Temporary Swift interface name-qualification fixes accommodate Swift 6.4; binary frameworks and their ABI are unchanged.

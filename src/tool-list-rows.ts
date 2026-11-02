@@ -30,9 +30,11 @@ import {
   defineTool,
   type ToolDefinition,
 } from '@deepseek-ai/dsh-tools'
+import { tapDuoDisplay } from './duo-display.js'
 import type { SimHostController } from './sim-host.js'
 import {
   describeUi,
+  duoDisplayForTree,
   ensureAxeBinary,
   execAxe,
   type AxeElement,
@@ -218,7 +220,7 @@ async function readTreeForTarget(
   const binary = await requireAxeBinary(tool)
   let roots: AxeElement[]
   try {
-    roots = await describeUi(binary, target.device.udid, signal)
+    roots = await describeUi(binary, target.device.udid, signal, target.device)
   } catch (error) {
     throw new Error(`${tool}: could not read the accessibility tree of ${target.device.name} (${target.device.udid}): ${errorMessage(error)}`)
   }
@@ -548,9 +550,15 @@ export function createSimRowTools(host: SimHostController, options: SimRowToolsO
       } else {
         const binary = await requireAxeBinary('ios_sim_tap_row')
         try {
-          await execAxe(binary, ['tap', '-x', String(plan.tap.x), '-y', String(plan.tap.y), '--udid', target.device.udid], 60_000, exec.signal)
+          const display = duoDisplayForTree(sample.roots)
+          if (display !== undefined) {
+            await tapDuoDisplay(host, target.device, display,
+              { x: plan.tap.x / display.points.width, y: plan.tap.y / display.points.height }, exec.signal)
+          } else {
+            await execAxe(binary, ['tap', '-x', String(plan.tap.x), '-y', String(plan.tap.y), '--udid', target.device.udid], 60_000, exec.signal)
+          }
         } catch (error) {
-          throw new Error(`ios_sim_tap_row: AXe tap at (${plan.tap.x}, ${plan.tap.y}) failed: ${errorMessage(error)}`)
+          throw new Error(`ios_sim_tap_row: simulator tap at (${plan.tap.x}, ${plan.tap.y}) failed: ${errorMessage(error)}`)
         }
       }
 

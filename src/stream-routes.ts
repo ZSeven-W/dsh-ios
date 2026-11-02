@@ -119,6 +119,8 @@ import {
 } from './simctl.js'
 import { listRealDevices } from './devicectl.js'
 import { DEVICE_ACTIONS, deviceActionSpec, isDeviceAction } from './device-actions.js'
+import { createHingeRelay } from './hinge-relay.js'
+import { hingeTargetAngle, runStreamHingeAction, type HingeArgs } from './hinge.js'
 import { SimStreamSource, WdaStreamSource, type WdaControllerLike } from './stream-source.js'
 import { CONTROL_PORT_START as DEFAULT_CONTROL_PORT, probeWdaControlTunnel } from './wda-host.js'
 
@@ -129,6 +131,7 @@ export const SCREENSHOT_ROUTE_PREFIX = `${PLUGIN_ROUTE_PREFIX}/screenshot`
 export const WS_ROUTE_PATH = `${PLUGIN_ROUTE_PREFIX}/ws`
 /** `POST` — run one device-level action (App Switcher, lock, Siri, …). */
 export const DEVICE_ACTION_ROUTE_PATH = `${PLUGIN_ROUTE_PREFIX}/device-action`
+export const HINGE_ROUTE_PATH = `${PLUGIN_ROUTE_PREFIX}/hinge`
 export const GRANT_ROUTE_PATH = `${PLUGIN_ROUTE_PREFIX}/grant`
 export const SWITCH_DEVICE_ROUTE_PATH = `${PLUGIN_ROUTE_PREFIX}/switch-device`
 export const DEVICES_ROUTE_PATH = `${PLUGIN_ROUTE_PREFIX}/devices`
@@ -910,7 +913,7 @@ export class StreamRoutes {
         res.destroy()
         return
       }
-      this.#proxyStream(info.streamUrl, res, release)
+      this.#proxyStream(info.streamUrl, res, release, this.#streamStallTimeoutMs)
     } catch (error) {
       this.#answerError(res, error)
     }
@@ -980,6 +983,35 @@ export class StreamRoutes {
    * `control.deviceAction` (see device-actions.ts for the table, and for why
    * Restart / Erase are deliberately not in it).
    */
+  async handleHinge(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    try {
+      this.#requireTrusted(req, true)
+      if (req.method !== 'POST') {
+        sendJson(res, 405, { ok: false, error: 'the hinge route only accepts POST' }, { allow: 'POST' })
+        return
+      }
+      if (!isJsonRequest(req)) throw new RouteError(415, 'hinge requires application/json', 'bad_content_type')
+      let value: unknown
+      try { value = JSON.parse(await readBody(req, MAX_GRANT_BODY_BYTES)) }
+      catch { throw new RouteError(400, 'hinge request must be valid JSON', 'bad_request') }
+      if (!isRecord(value) || typeof value.device !== 'string' || !UDID_PATTERN.test(value.device)) {
+        throw new RouteError(400, 'device must be an explicit simulator udid', 'bad_request')
+      }
+      const args = { action: value.action, angle: value.angle } as HingeArgs
+      try { hingeTargetAngle(args) }
+      catch (error) { throw new RouteError(400, errorMessage(error), 'bad_request') }
+      const device = (await listDevices()).find(d => d.udid === value.device)
+      if (device === undefined) throw new RouteError(409, 'unknown simulator; physical hinges are unsupported', 'device_unknown')
+      const controller = new AbortController()
+      const abort = (): void => { if (!res.writableFinished) controller.abort() }
+      res.once('close', abort)
+      try {
+        const result = await runStreamHingeAction(this.simHost, device, args, controller.signal)
+        sendJson(res, 200, { ok: true, ...result })
+      } finally { res.off('close', abort) }
+    } catch (error) { this.#answerError(res, error) }
+  }
+
   async handleDeviceAction(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
       this.#requireTrusted(req, true)
@@ -1957,11 +1989,13 @@ export class StreamRoutes {
       const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false })
       let browser: WsClientLike | undefined
       let upstream: WsClientLike | undefined
+      let hingeRelay: ReturnType<typeof createHingeRelay> | undefined
       let finished = false
       const teardown = (): void => {
         if (finished) return
         finished = true
         this.#wsTeardowns.delete(teardown)
+        hingeRelay?.close()
         browser?.terminate()
         upstream?.terminate()
         socket.destroy()
@@ -1978,6 +2012,7 @@ export class StreamRoutes {
           return
         }
         browser = client
+        hingeRelay = createHingeRelay(this.simHost, payload.udid, data => client.send(Buffer.from(data)))
         upstream = new WebSocket(info.wsUrl, { perMessageDeflate: false })
         const pending: Buffer[] = []
         client.on('error', teardown)
@@ -1991,7 +2026,7 @@ export class StreamRoutes {
           pending.length = 0
         })
         client.on('message', (data) => {
-          if (finished) return
+          if (finished || hingeRelay?.receive(data)) return
           const chunk = typeof data === 'string' ? Buffer.from(data) : data
           if (upstream !== undefined && upstream.readyState === WebSocket.OPEN) upstream.send(chunk)
           else if (pending.length < MAX_PENDING_WS_FRAMES) pending.push(chunk)
@@ -2068,8 +2103,8 @@ export class StreamRoutes {
     }
     // Half the stall budget between checks: a stream that dies right after a
     // check is caught at worst 1.5× the budget late, and the interval stays
-    // cheap (2 checks/s against the default 8 s budget). Absent for the
-    // serve-sim proxy, whose frame cadence is its own contract.
+    // cheap. Simulator and real-device streams both need this: an open
+    // control socket says nothing about whether video bytes are arriving.
     const watchdog = stallMs === undefined ? undefined : setInterval(() => {
       if (Date.now() - lastDataAt >= stallMs) teardown()
     }, Math.max(200, Math.floor(stallMs / 2)))
@@ -2102,7 +2137,7 @@ export class StreamRoutes {
       }
       const headers: OutgoingHttpHeaders = {
         'content-type': response.headers['content-type'] ?? 'multipart/x-mixed-replace; boundary=frame',
-        'cache-control': response.headers['cache-control'] ?? 'no-cache, no-store',
+        'cache-control': `${response.headers['cache-control'] ?? 'no-cache, no-store'}, no-transform`,
         'x-content-type-options': 'nosniff',
         'cross-origin-resource-policy': 'same-origin',
         'referrer-policy': 'no-referrer',
@@ -2176,6 +2211,11 @@ export function mountStreamRoutes(webServer: StreamRouteMount, routes: StreamRou
       kind: 'exact',
       path: DEVICE_ACTION_ROUTE_PATH,
       handler: (req, res) => routes.handleDeviceAction(req, res),
+    }),
+    webServer.register({
+      kind: 'exact',
+      path: HINGE_ROUTE_PATH,
+      handler: (req, res) => routes.handleHinge(req, res),
     }),
     webServer.register({
       kind: 'exact',

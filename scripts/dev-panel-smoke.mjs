@@ -552,6 +552,15 @@ try {
     variant: 'panel',
     session: liveSession,
   })
+  const expandedHtml = renderToString(React.createElement(client.SimulatorPanelBody, {
+    title: 'iOS Simulator', device: BOOT_META.device, mode: 'stream', liveOpen: true,
+    colorScheme: 'dark', locale: 'zh', expanded: true, onToggleExpanded: noop,
+    children: liveFrameElement,
+  }))
+  step('expanded preview offers a labeled return control and keeps the live frame',
+    expandedHtml.includes('aria-label="返回侧栏"') && expandedHtml.includes('aria-pressed="true"')
+      && expandedHtml.includes('data-sim-frame-state="live"'),
+    'return action and the existing live child share one panel tree')
   const livePanelHtml = renderToString(React.createElement(client.SimulatorPanelBody, {
     title: 'iOS Simulator',
     device: BOOT_META.device,
@@ -3166,19 +3175,19 @@ try {
   // ═══════════════════════════════════════════════════════════════════════════
   const widthBoundsOf = viewport => client.simulatorPanelWidthBounds(viewport)
   step(
-    'width bounds adopt the openpencil shape (available = viewport − 640 clearance)',
+    'width bounds adopt the openpencil shape (available = viewport − 400 clearance)',
     JSON.stringify(widthBoundsOf(2000)) === JSON.stringify({ min: 320, max: 960, initial: 380 })
-      && JSON.stringify(widthBoundsOf(1400)) === JSON.stringify({ min: 320, max: 760, initial: 380 })
+      && JSON.stringify(widthBoundsOf(1400)) === JSON.stringify({ min: 320, max: 960, initial: 380 })
       && JSON.stringify(widthBoundsOf(1920)) === JSON.stringify({ min: 320, max: 960, initial: 380 }),
-    'viewport 2000 → max 960 · 1400 → 760 · preferred 380 stays the initial',
+    'viewport 2000 → max 960 · 1400 → 960 · preferred 380 stays the initial',
   )
   step(
     'width bounds min guard path (available below MIN clamps everything to 320)',
-    JSON.stringify(widthBoundsOf(900)) === JSON.stringify({ min: 320, max: 320, initial: 320 })
+    JSON.stringify(widthBoundsOf(700)) === JSON.stringify({ min: 320, max: 320, initial: 320 })
       && JSON.stringify(widthBoundsOf(700)) === JSON.stringify({ min: 320, max: 320, initial: 320 })
       && JSON.stringify(widthBoundsOf(0)) === JSON.stringify({ min: 320, max: 320, initial: 320 })
       && JSON.stringify(widthBoundsOf(Number.NaN)) === JSON.stringify({ min: 320, max: 320, initial: 320 }),
-    'viewport − 640 < 320 → max=min=initial=320 (never negative, never NaN)',
+    'viewport − 400 < 320 → max=min=initial=320 (never negative, never NaN)',
   )
   step(
     'initial clamps into [min, max] at every viewport (never above max, never below min)',
@@ -3189,8 +3198,8 @@ try {
         && bounds.min <= bounds.max
         && bounds.max <= client.SIMULATOR_PANEL_MAX_WIDTH
         && bounds.max >= client.SIMULATOR_PANEL_MIN_WIDTH
-    }) && widthBoundsOf(1024).max === 384 && widthBoundsOf(1024).initial === 380,
-    '1024 → max 384, initial stays 380; every bound lies inside the contract range',
+    }) && widthBoundsOf(1024).max === 624 && widthBoundsOf(1024).initial === 380,
+    '1024 → max 624, initial stays 380; every bound lies inside the contract range',
   )
   step(
     'panel width helpers clamp into the contract range (MAX now 960)',
@@ -3206,10 +3215,10 @@ try {
     'landscape auto-widen target: min(needed at ~420px display height, max), snapped to whole px',
     client.simulatorPanelLandscapeTargetWidthOf(widthBoundsOf(2000), undefined, undefined) === 909
       && client.simulatorPanelLandscapeTargetWidthOf(widthBoundsOf(2000), 1170, 2532) === 909
-      && client.simulatorPanelLandscapeTargetWidthOf(widthBoundsOf(1400), 1170, 2532) === 760
-      && client.simulatorPanelLandscapeTargetWidthOf(widthBoundsOf(900), 1170, 2532) === 320
+      && client.simulatorPanelLandscapeTargetWidthOf(widthBoundsOf(1400), 1170, 2532) === 909
+      && client.simulatorPanelLandscapeTargetWidthOf(widthBoundsOf(700), 1170, 2532) === 320
       && Number.isInteger(client.simulatorPanelLandscapeTargetWidthOf(widthBoundsOf(2000), 834, 1194)),
-    '420 × 844/390 = 909 (fallback and 1170×2532 agree); 1400-viewport bounds cap 760; min guard 320; always integer (WP24 snap)',
+    '420 × 844/390 = 909 (fallback and 1170×2532 agree); 1400-viewport allows 909; min guard 320; always integer (WP24 snap)',
   )
   step(
     'orientation predicate: ±90° are landscape stints, everything else portrait',
@@ -3292,13 +3301,24 @@ try {
   )
   step(
     'effective width stays inside the live viewport bounds in every stint',
-    client.simulatorPanelEffectiveWidth(widened, 1400) === 760
-      && client.simulatorPanelEffectiveWidth(widened, 900) === 320
-      && client.simulatorPanelEffectiveWidth(overridden, 900) === 320,
-    'auto-widen target and manual widths are clamped to the viewport (760 / 320 guard)',
+    client.simulatorPanelEffectiveWidth(widened, 1400) === 909
+      && client.simulatorPanelEffectiveWidth(widened, 700) === 320
+      && client.simulatorPanelEffectiveWidth(overridden, 700) === 320,
+    'auto-widen target and manual widths are clamped to the viewport (909 / 320 guard)',
   )
 
   // ═══════════════════════════════════════════════════════════════════════════
+  const duoWide = client.simulatorPanelWidthStateNext(widthStateInitial, {
+    kind: 'display', orientation: 'landscape_left', naturalWidth: 2007, naturalHeight: 2853,
+  })
+  step(
+    'Duo landscape avoids shrinking a 951pt screen into the old 549px preview',
+    client.simulatorPanelEffectiveWidth(duoWide, 1280) === 880
+      && client.simulatorPanelEffectiveWidth(duoWide, 1920) === 960
+      && client.simulatorPanelEffectiveWidth(client.simulatorPanelWidthStateNext(duoWide, portraitReport), 1280) === 380,
+    '1280 viewport: 880px panel, 400px conversation; portrait restores 380px',
+  )
+
   // Auto-follow: the pure follow/override state machine + the target
   // classification + the header indicator (SSR). No browser, no device — the
   // machine is driven action by action with injected clocks, exactly like
@@ -4981,28 +5001,9 @@ try {
       && !sessionSource.includes('switchSettleRef.current = undefined\n      reportConnection(false)'),
     'attempt budget lives outside the per-effect lifecycle',
   )
-  step(
-    'watchdog retires on settle and falls back with retry on exhaustion',
-    sessionSource.includes('if (wsLive || frameLive) {')
-      && sessionSource.includes("setPhase('fallback')")
-      && sessionSource.includes('switchSettleRef.current = { attemptsLeft: SIM_SWITCH_SETTLE_ATTEMPTS }')
-      && sessionSource.match(/startSettleTimer\(\)/g).length >= 2,
-    'seeded path arms it; re-grant path re-arms it; exhaustion shows the fallback',
-  )
-  step(
-    'a ws death during a switch stint defers to the watchdog (no fallback race)',
-    (() => {
-      const body = sessionSource.slice(sessionSource.indexOf('const autoReGrant'))
-      const guard = body.indexOf('if (switchSettleRef.current !== undefined) return')
-      const burn = body.indexOf('autoRetriedRef.current = true')
-      const fallback = body.indexOf("setPhase('fallback')")
-      // The stint guard must precede BOTH the one-shot budget burn and the
-      // fallback — otherwise a cold-booting device (relay refused within ~1s
-      // per attempt) reaches the fallback before the timer's first tick.
-      return guard >= 0 && guard < burn && guard < fallback
-    })(),
-    'autoReGrant returns early while a switch budget is active',
-  )
+  // Readiness, no-frame timeout, bounded retry and unmount cleanup are
+  // exercised as running hook behavior by dev-stream-health-smoke.mjs.
+
 } catch (error) {
   step('panel smoke completed without uncaught errors', false, error instanceof Error ? error.message : String(error))
   console.error(error)

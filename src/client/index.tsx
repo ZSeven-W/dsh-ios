@@ -130,6 +130,7 @@ export {
   type SimPanelDisplayReport,
   type SimPanelMode,
 } from './sim-panel.js'
+export { SimHingeControls, HingeControlBody } from './sim-hinge-controls.js'
 export {
   SIM_FRAME_BEZEL_SHELL,
   SIM_FRAME_DEVICE_SHELL,

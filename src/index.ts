@@ -37,6 +37,10 @@ import { createSimPreviewTools, IOS_PREVIEW_TOOL_NAMES } from './tool-preview.js
 import { registerIosSkill } from './skill.js'
 import { installStreamRoutes } from './stream-routes.js'
 import { disposeDevicectlChildren } from './devicectl.js'
+import { createSimHingeTool } from './tool-hinge.js'
+import { closeAxeReaders } from './ax-reader.js'
+export { createSimHingeTool } from './tool-hinge.js'
+export { isFoldableSimulator, hingeTargetAngle, parseHingePosture, runHingeAction } from './hinge.js'
 
 export {
   SimHostController,
@@ -386,6 +390,7 @@ export function apply(ctx: Context): () => Promise<void> {
   wda.startKeepAlive()
 
   const disposers: Array<() => void | Promise<void>> = []
+  disposers.push(closeAxeReaders)
   // The bundled playbook: what the tool descriptions cannot say, because it
   // is about the workflow BETWEEN the tools. A host without the skill service
   // simply does not advertise it.
@@ -395,6 +400,7 @@ export function apply(ctx: Context): () => Promise<void> {
   disposers.push(ctx.effect(() => hostCtx.tools.register(tools.iosSimShutdown), 'dsh-ios:ios_sim_shutdown'))
   disposers.push(ctx.effect(() => hostCtx.tools.register(tools.iosSimScreenshot), 'dsh-ios:ios_sim_screenshot'))
   disposers.push(ctx.effect(() => hostCtx.tools.register(tools.iosSimInteract), 'dsh-ios:ios_sim_interact'))
+  disposers.push(ctx.effect(() => hostCtx.tools.register(createSimHingeTool(host)), 'dsh-ios:ios_sim_hinge'))
   // WP57: ios_sim_list_apps + ios_sim_launch_app. The launch tool existed in
   // the factory but was never registered here, so "open the list app" had no verb
   // at all: one measured session answered it with 25 shell calls (6.6 s each,
@@ -443,7 +449,7 @@ export function apply(ctx: Context): () => Promise<void> {
 
   // The mounted-tool inventory must list what was actually registered:
   // ios_sim_logs and the four debug tools were mounted above but missing here.
-  ctx.logger.info(`dsh-ios mounted (${IOS_TOOL_NAMES.join(' + ')} + ${IOS_UI_TOOL_NAMES.join(' + ')} + ${IOS_ROW_TOOL_NAMES.join(' + ')} + ${IOS_OCR_TOOL_NAMES.join(' + ')} + ios_sim_logs + ${IOS_PREVIEW_TOOL_NAMES.join(' + ')} + ${IOS_DEBUG_TOOL_NAMES.join(' + ')}; serve-sim: ${host.status().serveSimSource}; WDA: ${wda.status().available ? 'available' : `unavailable (${wda.tooling.reason ?? '?'})`})`)
+  ctx.logger.info(`dsh-ios mounted (${IOS_TOOL_NAMES.join(' + ')} + ios_sim_hinge + ${IOS_UI_TOOL_NAMES.join(' + ')} + ${IOS_ROW_TOOL_NAMES.join(' + ')} + ${IOS_OCR_TOOL_NAMES.join(' + ')} + ios_sim_logs + ${IOS_PREVIEW_TOOL_NAMES.join(' + ')} + ${IOS_DEBUG_TOOL_NAMES.join(' + ')}; serve-sim: ${host.status().serveSimSource}; WDA: ${wda.status().available ? 'available' : `unavailable (${wda.tooling.reason ?? '?'})`})`)
   return async () => {
     for (const dispose of disposers.reverse()) await dispose()
     await previewTools.controller.dispose()

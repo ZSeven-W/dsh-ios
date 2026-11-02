@@ -45,13 +45,18 @@
     "assets/preview-host/**",
     "assets/qa-wda-simulator/**",
     "assets/ocr.swift",
+    "assets/hinge/**",
     "cordis.patch.yml",
     "README.md",
     "README.*.md",
     "LICENSE",
-    "THIRD_PARTY_NOTICES.md"
+    "THIRD_PARTY_NOTICES.md",
+    "DUO-ADAPTATION.md",
+    "assets/ax-reader/**",
+    "assets/axe/**"
   ],
   "scripts": {
+    "test:hinge": "node scripts/dev-hinge-smoke.mjs && node scripts/dev-hinge-session-smoke.mjs && node scripts/dev-hinge-ui-smoke.mjs && node scripts/dev-hinge-readback-smoke.mjs && node scripts/dev-hinge-rpc-smoke.mjs",
     "build": "node scripts/run-tool.mjs tsc -p tsconfig.json && pnpm run build:client",
     "build:client": "node scripts/run-tool.mjs tsc -p tsconfig.client.json && node scripts/run-tool.mjs tsdown src/client/index.tsx --config tsdown.config.mjs --format cjs --platform browser --target es2022 --tsconfig tsconfig.client.json --out-dir .client-build --clean --sourcemap --logLevel warn && node scripts/build-client.mjs",
     "typecheck": "node scripts/run-tool.mjs tsc -p tsconfig.json && node scripts/run-tool.mjs tsc -p tsconfig.client.json",
@@ -59,7 +64,12 @@
     "test:wda-targeted-text": "node scripts/dev-wda-targeted-text-smoke.mjs",
     "test:qa-physical-targeted": "node scripts/dev-qa-physical-targeted-smoke.mjs",
     "test:qa-runtime": "node scripts/dev-wda-physical-stage-smoke.mjs && node scripts/dev-usbmux-listener-probe-smoke.mjs && node scripts/dev-qa-physical-default-smoke.mjs && node scripts/dev-qa-sim-recovery-smoke.mjs && node scripts/dev-wda-simulator-input-release-subprocess.mjs",
-    "test": "node scripts/dev-plugin-env-smoke.mjs && node scripts/dev-signing-smoke.mjs && node scripts/dev-devicectl-smoke.mjs && node scripts/dev-realtools-smoke.mjs && node scripts/dev-realstart-smoke.mjs && node scripts/dev-panel-smoke.mjs && node scripts/dev-wda-smoke.mjs && node scripts/dev-uitree-smoke.mjs && node scripts/dev-wda-simulator-input-smoke.mjs && node scripts/dev-wda-targeted-text-smoke.mjs && node scripts/dev-qa-driver-smoke.mjs && node scripts/dev-qa-physical-targeted-smoke.mjs && node scripts/dev-logs-smoke.mjs && node scripts/dev-debug-smoke.mjs && npm run test:qa-runtime"
+    "test": "node scripts/dev-plugin-env-smoke.mjs && node scripts/dev-signing-smoke.mjs && node scripts/dev-devicectl-smoke.mjs && node scripts/dev-realtools-smoke.mjs && node scripts/dev-realstart-smoke.mjs && node scripts/dev-panel-smoke.mjs && node scripts/dev-wda-smoke.mjs && node scripts/dev-uitree-smoke.mjs && node scripts/dev-wda-simulator-input-smoke.mjs && node scripts/dev-wda-targeted-text-smoke.mjs && node scripts/dev-qa-driver-smoke.mjs && node scripts/dev-qa-physical-targeted-smoke.mjs && node scripts/dev-logs-smoke.mjs && node scripts/dev-debug-smoke.mjs && npm run test:qa-runtime",
+    "test:stream-health": "node scripts/dev-stream-health-smoke.mjs && node scripts/dev-sim-stall-smoke.mjs && node scripts/dev-fold-channel-smoke.mjs",
+    "test:duo-display": "node scripts/dev-duo-display-smoke.mjs && node scripts/dev-duo-rotation-smoke.mjs",
+    "test:runtime-latency": "node scripts/dev-axe-download-budget-smoke.mjs && node scripts/dev-screenshot-context-smoke.mjs",
+    "test:duo-session": "node scripts/dev-sim-device-operations-smoke.mjs && node scripts/dev-ax-reader-smoke.mjs",
+    "test:duo": "pnpm run test:hinge && pnpm run test:duo-display && pnpm run test:stream-health && pnpm run test:runtime-latency && pnpm run test:duo-session && node scripts/dev-axe-bundled-smoke.mjs"
   },
   "packageManager": "pnpm@10.12.1",
   "pnpm": {
@@ -69,7 +79,7 @@
     ]
   },
   "dependencies": {
-    "serve-sim": "^0.1.45"
+    "serve-sim": "0.1.49-beta.139.1"
   },
   "dsh": {
     "bundle": {

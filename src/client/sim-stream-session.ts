@@ -27,6 +27,7 @@
  * open/close transitions so the panel can drive its "● Live" indicator.
  */
 
+import { createSimHingeRpc } from './sim-hinge-rpc.js'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react'
 import {
@@ -62,6 +63,8 @@ export type SimStreamPhase = 'granting' | 'live' | 'fallback'
  */
 export const SIM_SWITCH_SETTLE_INTERVAL_MS = 4000
 export const SIM_SWITCH_SETTLE_ATTEMPTS = 10
+export const SIM_FIRST_FRAME_TIMEOUT_MS = 12_000
+export const SIM_STREAM_RETRY_LIMIT = 3
 
 /**
  * A pre-minted capability the stream session may adopt instead of POSTing
@@ -101,9 +104,14 @@ export interface SimStreamSession {
   failure: string
   /** True while the control WebSocket is open (panel "● Live" source). */
   wsOpen: boolean
+  videoReady: boolean
+  hingeDegrees?: number
+  hingeFetcher: SimFetcher
   imgRef: RefObject<HTMLImageElement>
   /** The device orientation reported by the last serve-sim config frame. */
   orientation: string | undefined
+  frameSize?: { width: number; height: number }
+  onFrameLoad: () => void
   /** Manual refresh: clear the auto-retry budget and re-grant. */
   refresh: () => void
   /** One automatic re-grant (img error / ws close), then the fallback. */
@@ -133,13 +141,27 @@ export function useSimStream(options: SimStreamSessionOptions): SimStreamSession
   const [failure, setFailure] = useState('')
   const [attempt, setAttempt] = useState(0)
   const [wsOpen, setWsOpen] = useState(false)
+  const [videoReady, setVideoReady] = useState(false)
   const [orientation, setOrientation] = useState<string>()
-  const autoRetriedRef = useRef(false)
+  const [hingeDegrees, setHingeDegrees] = useState<number>()
+  const [frameSize, setFrameSize] = useState<{ width: number; height: number }>()
+  const retryCountRef = useRef(0)
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout>>()
+  const firstFrameTimerRef = useRef<ReturnType<typeof setTimeout>>()
+  const stableTimerRef = useRef<ReturnType<typeof setTimeout>>()
+  const frameSeenRef = useRef(false)
   const generationRef = useRef(0)
   const wsRef = useRef<SimWebSocketLike>()
+  const hingeRpcRef = useRef<ReturnType<typeof createSimHingeRpc>>()
+  const hingeFetcher = useCallback<SimFetcher>((input, init) => {
+    const rpc = hingeRpcRef.current
+    if (!rpc) return Promise.reject(new Error('Duo control connection unavailable; reconnect the preview'))
+    return rpc.fetcher(input, init)
+  }, [])
   const imgRef = useRef<HTMLImageElement>(null)
-  const pointerRef = useRef<{ id: number }>()
+  const pointerRef = useRef<{ id: number; point: SimPoint }>()
   const orientationRef = useRef<string>()
+  const rotateOrientationRef = useRef<string>()
   const connectionRef = useRef(onConnectionChange)
   connectionRef.current = onConnectionChange
   const copyRef = useRef<Record<string, string>>(copy ?? {})
@@ -164,15 +186,25 @@ export function useSimStream(options: SimStreamSessionOptions): SimStreamSession
 
   const reportConnection = useCallback((open: boolean): void => {
     setWsOpen(open)
-    connectionRef.current?.(open)
-    // The ws opening proves the stream settled: retire the switch watchdog.
-    if (open && switchSettleRef.current !== undefined) {
+    connectionRef.current?.(open && frameSeenRef.current)
+    if (!open && stableTimerRef.current !== undefined) {
+      clearTimeout(stableTimerRef.current)
+      stableTimerRef.current = undefined
+    }
+    if (open && frameSeenRef.current && stableTimerRef.current === undefined) {
+      stableTimerRef.current = setTimeout(() => {
+        stableTimerRef.current = undefined
+        retryCountRef.current = 0
+      }, 30_000)
+    }
+    // Control connectivity alone cannot prove that a video frame arrived.
+    if (open && frameSeenRef.current && switchSettleRef.current !== undefined) {
       switchSettleRef.current = undefined
       clearSettleTimer()
     }
   }, [clearSettleTimer])
 
-  /** One automatic re-grant, then the static fallback. */
+  /** Coalesce img/ws failures and retry with bounded exponential backoff. */
   const autoReGrant = useCallback((): void => {
     // A switch stint owns the retry cadence. A cold-booting device closes
     // the relay again within ~1s of every attempt, so letting this path run
@@ -182,12 +214,19 @@ export function useSimStream(options: SimStreamSessionOptions): SimStreamSession
     // the budget is spent, so a ws death here is simply reported (the
     // indicator goes gray) and left to it.
     if (switchSettleRef.current !== undefined) return
-    if (autoRetriedRef.current) {
+    if (retryTimerRef.current !== undefined) return
+    if (retryCountRef.current >= SIM_STREAM_RETRY_LIMIT) {
+      connectionRef.current?.(false)
       setFailure(unavailableCopy)
       setPhase('fallback')
+      setVideoReady(false)
     } else {
-      autoRetriedRef.current = true
-      setAttempt(current => current + 1)
+      const wait = 500 * 2 ** retryCountRef.current++
+      connectionRef.current?.(false)
+      retryTimerRef.current = setTimeout(() => {
+        retryTimerRef.current = undefined
+        setAttempt(current => current + 1)
+      }, wait)
     }
   }, [unavailableCopy])
 
@@ -205,18 +244,14 @@ export function useSimStream(options: SimStreamSessionOptions): SimStreamSession
         clearSettleTimer()
         return
       }
-      const ws = wsRef.current
-      const img = imgRef.current
-      const wsLive = ws !== undefined && ws.readyState === WEB_SOCKET_OPEN
-      const frameLive = img !== null && img.naturalWidth > 0
-      if (wsLive || frameLive) {
+      if (frameSeenRef.current) {
         switchSettleRef.current = undefined
         clearSettleTimer()
         return
       }
       if (settle.attemptsLeft > 0) {
         settle.attemptsLeft -= 1
-        autoRetriedRef.current = false
+        retryCountRef.current = 0
         setAttempt(current => current + 1)
       } else {
         switchSettleRef.current = undefined
@@ -230,10 +265,55 @@ export function useSimStream(options: SimStreamSessionOptions): SimStreamSession
 
   /** Manual refresh: clear the auto-retry budget and re-grant. */
   const refresh = useCallback((): void => {
-    autoRetriedRef.current = false
+    retryCountRef.current = 0
+    if (retryTimerRef.current !== undefined) clearTimeout(retryTimerRef.current)
+    retryTimerRef.current = undefined
     setFailure('')
     setAttempt(current => current + 1)
   }, [])
+
+  const onFrameLoad = useCallback((): void => {
+    // A load event can also follow a removed/failed MJPEG source in WebKit.
+    // Only a decoded image establishes readiness.
+    const image = imgRef.current
+    if (!image || image.naturalWidth <= 0 || image.naturalHeight <= 0) return
+    if (frameSeenRef.current) return
+    frameSeenRef.current = true
+    setVideoReady(true)
+    if (firstFrameTimerRef.current !== undefined) clearTimeout(firstFrameTimerRef.current)
+    firstFrameTimerRef.current = undefined
+    switchSettleRef.current = undefined
+    clearSettleTimer()
+    const connected = wsRef.current?.readyState === WEB_SOCKET_OPEN
+    connectionRef.current?.(connected)
+    // A short-lived cached frame must not keep resetting a failing stream's
+    // retry budget. Only a connection that survives 30 seconds earns it back.
+    if (connected && stableTimerRef.current === undefined) {
+      stableTimerRef.current = setTimeout(() => {
+        stableTimerRef.current = undefined
+        retryCountRef.current = 0
+      }, 30_000)
+    }
+  }, [clearSettleTimer])
+
+  useEffect(() => {
+    if (!enabled || phase !== 'live') return
+    // WebKit can silently discard a previously decoded MJPEG image. Detect
+    // that concrete loss, without declaring an unchanged screen unhealthy.
+    const timer = setInterval(() => {
+      const image = imgRef.current
+      if (!frameSeenRef.current || !image || image.naturalWidth > 0 && image.naturalHeight > 0) return
+      frameSeenRef.current = false
+      setVideoReady(false)
+      reportConnection(false)
+      autoReGrant()
+    }, 1500)
+    return () => clearInterval(timer)
+  }, [enabled, phase, autoReGrant, reportConnection])
+
+  useEffect(() => {
+    retryCountRef.current = 0
+  }, [udid])
 
   useEffect(() => {
     if (!enabled) return
@@ -241,21 +321,36 @@ export function useSimStream(options: SimStreamSessionOptions): SimStreamSession
     generationRef.current = generation
     let disposed = false
     let ws: SimWebSocketLike | undefined
+    let hingeRpc: ReturnType<typeof createSimHingeRpc> | undefined
     setPhase('granting')
     setGrant(undefined)
     setFailure('')
+    frameSeenRef.current = false
+    setVideoReady(false)
+    setFrameSize(undefined)
+    setHingeDegrees(undefined)
     reportConnection(false)
 
     const cleanup = (): void => {
       disposed = true
       generationRef.current += 1
       wsRef.current = undefined
+      hingeRpc?.close()
+      if (hingeRpcRef.current === hingeRpc) hingeRpcRef.current = undefined
+      try { if (ws?.readyState === WEB_SOCKET_OPEN && pointerRef.current) {
+        ws.send(simTouchFrame('end', pointerRef.current.point.x, pointerRef.current.point.y))
+      } } catch { /* the transport may already be closing */ }
+      pointerRef.current = undefined
       try {
         ws?.close()
       } catch {
         // already closed
       }
       imgRef.current?.removeAttribute('src')
+      for (const timer of [retryTimerRef, firstFrameTimerRef, stableTimerRef]) {
+        if (timer.current !== undefined) clearTimeout(timer.current)
+        timer.current = undefined
+      }
       // Clear only the TIMER — the switch settle budget (switchSettleRef)
       // must survive the effect re-run its own re-grant causes.
       clearSettleTimer()
@@ -266,6 +361,12 @@ export function useSimStream(options: SimStreamSessionOptions): SimStreamSession
       try {
         ws = makeWs(resolveWsUrl(wsUrl, window.location))
         wsRef.current = ws
+        hingeRpc = createSimHingeRpc(ws, udid ?? '', () => {
+          if (disposed) return
+          reportConnection(false)
+          autoReGrant()
+        })
+        hingeRpcRef.current = hingeRpc
       } catch (error) {
         // A WebSocket constructor that throws still leaves the img live;
         // interactions just stay disabled until the next grant.
@@ -277,6 +378,8 @@ export function useSimStream(options: SimStreamSessionOptions): SimStreamSession
         reportConnection(true)
       })
       ws.addEventListener('close', () => {
+        hingeRpc?.close()
+        if (disposed) return
         reportConnection(false)
         if (disposed) return
         disposed = true
@@ -286,10 +389,17 @@ export function useSimStream(options: SimStreamSessionOptions): SimStreamSession
       // orientation) on connect and after a rotation — track it so the
       // toolbar's Rotate button can advance the clockwise cycle.
       ws.addEventListener('message', (event: unknown) => {
-        const config = parseSimConfigFrame((event as { data?: unknown } | undefined)?.data)
+        if (disposed) return
+        const data = (event as { data?: unknown } | undefined)?.data
+        if (hingeRpc?.receive(data)) return
+        const config = parseSimConfigFrame(data)
         if (config === undefined) return
         orientationRef.current = config.orientation
+        rotateOrientationRef.current = config.duoViewOrientation ?? config.orientation
         setOrientation(config.orientation)
+        setHingeDegrees(config.hingeDegrees)
+        setFrameSize(previous => previous?.width === config.width && previous.height === config.height
+          ? previous : { width: config.width, height: config.height })
       })
       // The browser fires 'close' after 'error'; the close handler above is
       // the single re-grant trigger (spec: ws close → one automatic re-grant).
@@ -300,12 +410,20 @@ export function useSimStream(options: SimStreamSessionOptions): SimStreamSession
     // once, on the grant cycle whose udid matches the seed. Later re-grants
     // go through /grant normally (a stale seeded token must never be reused).
     const seed = seededGrant
+    const watchFirstFrame = (): void => {
+      firstFrameTimerRef.current = setTimeout(() => {
+        firstFrameTimerRef.current = undefined
+        if (!disposed && !frameSeenRef.current) autoReGrant()
+      }, SIM_FIRST_FRAME_TIMEOUT_MS)
+    }
     if (seed !== undefined && seed !== consumedSeedRef.current && seed.udid === udid) {
       consumedSeedRef.current = seed
       switchSettleRef.current = { attemptsLeft: SIM_SWITCH_SETTLE_ATTEMPTS }
-      setGrant({ streamUrl: seed.streamUrl })
+      const streamUrl = seed.streamUrl
+      setGrant({ streamUrl })
       setPhase('live')
       openWs(seed.wsUrl)
+      watchFirstFrame()
       startSettleTimer()
       return cleanup
     }
@@ -318,9 +436,11 @@ export function useSimStream(options: SimStreamSessionOptions): SimStreamSession
         setPhase('fallback')
         return
       }
-      setGrant(result.grant)
+      const streamUrl = result.grant.streamUrl
+      setGrant({ ...result.grant, streamUrl })
       setPhase('live')
       openWs(result.grant.wsUrl)
+      watchFirstFrame()
       // A watchdog-triggered re-grant lands here: keep watching until the
       // stream actually settles (no-op when no switch budget is active).
       startSettleTimer()
@@ -344,7 +464,7 @@ export function useSimStream(options: SimStreamSessionOptions): SimStreamSession
   }, [sendFrame])
 
   const sendRotate = useCallback((): void => {
-    sendFrame(simRotateFrame(nextSimRotateOrientation(orientationRef.current)))
+    sendFrame(simRotateFrame(nextSimRotateOrientation(rotateOrientationRef.current)))
   }, [sendFrame])
 
   /**
@@ -354,15 +474,18 @@ export function useSimStream(options: SimStreamSessionOptions): SimStreamSession
    * server streams (e.g. the displayed top-left of a landscape_left frame
    * is the framebuffer's top-right corner).
    */
-  const pointOf = (event: ReactPointerEvent<HTMLElement>): SimPoint => {
+  const pointOf = (event: ReactPointerEvent<HTMLElement>): SimPoint | null => {
     const bounds = event.currentTarget.getBoundingClientRect()
+    if (!frameSeenRef.current) return null
     const displayed = normalizePointerPoint(event, bounds)
     return simFramebufferPointOf(orientationRef.current, displayed)
   }
 
   const onPointerDown = (event: ReactPointerEvent<HTMLElement>): void => {
     const point = pointOf(event)
-    pointerRef.current = { id: event.pointerId }
+    if (point === null || event.button !== 0) return
+    event.preventDefault()
+    pointerRef.current = { id: event.pointerId, point }
     try {
       event.currentTarget.setPointerCapture(event.pointerId)
     } catch {
@@ -375,6 +498,8 @@ export function useSimStream(options: SimStreamSessionOptions): SimStreamSession
     const active = pointerRef.current
     if (active === undefined || active.id !== event.pointerId) return
     const point = pointOf(event)
+    if (point === null) return
+    active.point = point
     sendFrame(simTouchFrame('move', point.x, point.y))
   }
 
@@ -382,8 +507,9 @@ export function useSimStream(options: SimStreamSessionOptions): SimStreamSession
     const active = pointerRef.current
     if (active === undefined || active.id !== event.pointerId) return
     pointerRef.current = undefined
-    const point = pointOf(event)
+    const point = pointOf(event) ?? active.point
     sendFrame(simTouchFrame('end', point.x, point.y))
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
   }
 
   return {
@@ -391,7 +517,12 @@ export function useSimStream(options: SimStreamSessionOptions): SimStreamSession
     streamUrl: grant?.streamUrl,
     failure,
     wsOpen,
+    videoReady,
+    hingeDegrees,
+    hingeFetcher,
     orientation,
+    frameSize,
+    onFrameLoad,
     imgRef,
     refresh,
     retryOnce: autoReGrant,

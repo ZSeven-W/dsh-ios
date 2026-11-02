@@ -59,6 +59,9 @@ export interface SimLiveFrameSessionState {
   sendHome: () => void
   /** Device orientation from the serve-sim config frames (tag 130). */
   orientation?: string | undefined
+  videoReady?: boolean
+  frameSize?: { width: number; height: number }
+  onFrameLoad?: () => void
   onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void
   onPointerMove: (event: ReactPointerEvent<HTMLElement>) => void
   onPointerUp: (event: ReactPointerEvent<HTMLElement>) => void
@@ -109,12 +112,14 @@ export function SimLiveFrameBody({
     onPointerUp,
   } = session
   const reportNaturalSize = (event: SyntheticEvent<HTMLImageElement>): void => {
+    session.onFrameLoad?.()
     onNaturalSize?.(event.currentTarget.naturalWidth, event.currentTarget.naturalHeight)
   }
   // The displayed bounding box for the stream img under the device
   // orientation (same base the panel's phone screen derives its axes from,
   // so the wrapper fills the screen exactly; the ±90° cases swap).
-  const layout: SimOrientationLayout = simPanelFrameLayoutOf(orientation, naturalWidth, naturalHeight)
+  const layout: SimOrientationLayout = simPanelFrameLayoutOf(orientation,
+    session.frameSize?.width ?? naturalWidth, session.frameSize?.height ?? naturalHeight)
   // ±90°: the img's PRE-rotation box must carry the wrapper's SWAPPED dims
   // (width = wrapper height, height = wrapper width), centered, so the
   // counter-rotated img fills the wrapper exactly. An inset-0 box equal to

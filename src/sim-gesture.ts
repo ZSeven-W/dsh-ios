@@ -238,6 +238,7 @@ interface SimWsClientLike {
   readonly readyState: number
   on(event: 'error', listener: (error: Error) => void): unknown
   on(event: 'close', listener: (code: number, reason: Buffer) => void): unknown
+  on(event: 'message', listener: (data: Buffer) => void): unknown
   once(event: 'open', listener: () => void): unknown
   once(event: 'close', listener: () => void): unknown
   // ws calls the write callback node-style: `null` on success, never undefined.
@@ -262,6 +263,91 @@ const requireWs = createRequire(import.meta.url)
  */
 function loadWs(): SimWsModuleLike {
   return requireWs('ws') as SimWsModuleLike
+}
+
+/** Dispatch physical orientation through the same native session as touch.
+ * The caller must verify the active display afterwards: tag 7 has no ack. */
+export async function sendSimOrientation(wsUrl: string, orientation: string, signal?: AbortSignal): Promise<void> {
+  if (!/^wss?:\/\//.test(wsUrl) || !['portrait', 'portrait_upside_down', 'landscape_left', 'landscape_right'].includes(orientation)) {
+    throw new TypeError('a live control socket and a valid orientation are required')
+  }
+  signal?.throwIfAborted()
+  const { WebSocket } = loadWs()
+  const socket = new WebSocket(wsUrl, { perMessageDeflate: false })
+  let removeAbort = (): void => {}
+  try {
+    await new Promise<void>((resolve, reject) => {
+      let settled = false
+      const finish = (error?: Error): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        if (error) reject(error)
+        else resolve()
+      }
+      const timer = setTimeout(() => finish(new Error('simulator rotation dispatch timed out')), 3_000)
+      const abort = (): void => finish(new Error('simulator rotation was cancelled'))
+      signal?.addEventListener('abort', abort, { once: true })
+      removeAbort = () => signal?.removeEventListener('abort', abort)
+      socket.on('error', finish)
+      socket.on('close', () => finish(new Error('control socket closed before rotation dispatch')))
+      socket.once('open', () => {
+        if (settled) return
+        socket.send(encodeSimControlFrame(7, { orientation }), error => finish(error ?? undefined))
+      })
+    })
+  } finally {
+    removeAbort()
+    await closeSocket(socket, WebSocket.CLOSED)
+  }
+}
+
+/** Fold the exact live session, without consulting serve-sim's global state
+ * file (another session's shutdown can remove that file while video is live).
+ * Native tag 14 acknowledges guest dispatch; the hinge adapter independently
+ * reads back angle and active display before reporting success. */
+export async function sendSimFold(wsUrl: string, angle: number, signal?: AbortSignal): Promise<void> {
+  if (!/^wss?:\/\//.test(wsUrl) || !Number.isFinite(angle) || angle < 0 || angle > 180) {
+    throw new TypeError('a live control socket and a hinge angle from 0 to 180 are required')
+  }
+  signal?.throwIfAborted()
+  const { WebSocket } = loadWs()
+  const socket = new WebSocket(wsUrl, { perMessageDeflate: false })
+  let removeAbort = (): void => {}
+  try {
+    await new Promise<void>((resolve, reject) => {
+      let settled = false
+      const finish = (error?: Error): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        if (error === undefined) resolve()
+        else reject(error)
+      }
+      const timer = setTimeout(() => finish(new Error('the simulator did not acknowledge the fold within 10 seconds')), 10_000)
+      const abort = (): void => { finish(new Error('simulator fold was cancelled')) }
+      signal?.addEventListener('abort', abort, { once: true })
+      removeAbort = () => signal?.removeEventListener('abort', abort)
+      socket.on('error', error => finish(error))
+      socket.on('close', () => finish(new Error('control socket closed before the fold was acknowledged')))
+      socket.on('message', data => {
+        if (data[0] !== 14) return
+        try {
+          const reply = JSON.parse(data.subarray(1).toString('utf8')) as { ok?: unknown }
+          finish(reply.ok === true ? undefined : new Error('the simulator rejected the fold'))
+        } catch { finish(new Error('the simulator returned an invalid fold acknowledgement')) }
+      })
+      socket.once('open', () => {
+        if (settled) return
+        socket.send(encodeSimControlFrame(14, { hinge: angle }), error => {
+          if (error !== undefined && error !== null) finish(error)
+        })
+      })
+    })
+  } finally {
+    removeAbort()
+    await closeSocket(socket, WebSocket.CLOSED)
+  }
 }
 
 function errorMessage(error: unknown): string {

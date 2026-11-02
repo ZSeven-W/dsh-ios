@@ -45,6 +45,7 @@ import {
   type SimGesturePoint,
   type SimScrollRequest,
 } from './sim-gesture.js'
+import { duoRawPoint, readDuoDisplay, type DuoDisplay } from './duo-display.js'
 import type { SimHostController, SimStreamInfo } from './sim-host.js'
 import {
   bootDevice,
@@ -619,7 +620,7 @@ async function captureScreenshot(
 ): Promise<ScreenshotCapture> {
   const device = await getDevice(udid)
   const path = store.nextPath(device.udid)
-  await takeScreenshot(device.udid, path, signal)
+  await takeScreenshot(device.udid, path, signal, { device })
   const bytes = statSync(path).size
   const size = readPngSize(path)
   return {
@@ -913,9 +914,25 @@ export async function performSimInteract(
   deviceUdid: string,
   args: SimInteractArgs,
   payloads: string[][],
-  options: { stepMs?: number } = {},
+  options: { stepMs?: number; display?: DuoDisplay } = {},
 ): Promise<SimInteractDelivery> {
-  const points = simInteractGesturePath(args)
+  const displayedPoints = simInteractGesturePath(args)
+  const points = options.display === undefined ? displayedPoints : displayedPoints?.map(point => duoRawPoint(options.display!, point))
+  if (options.display !== undefined) {
+    payloads = payloads.map(payload => {
+      if (payload[0] === 'tap') {
+        const raw = duoRawPoint(options.display!, { x: Number(payload[1]), y: Number(payload[2]) })
+        return ['tap', String(raw.x), String(raw.y), '--raw']
+      }
+      if (payload[0] === 'gesture') {
+        const touch = JSON.parse(payload[1]) as { x?: number; y?: number }
+        if (typeof touch.x === 'number' && typeof touch.y === 'number') {
+          return ['gesture', JSON.stringify({ ...touch, ...duoRawPoint(options.display!, { x: touch.x, y: touch.y }) }), '--raw']
+        }
+      }
+      return payload
+    })
+  }
   const info = host.streamInfo
   // The control socket belongs to the ONE device serve-sim streams: a
   // handshake naming another device (mid switch) must not receive this gesture.
@@ -979,7 +996,7 @@ export function createSimTools(host: SimHostController, options: SimToolsOptions
     isConcurrencySafe: () => true,
     async execute(_args: unknown, exec) {
       assertSimulatorAvailable(host)
-      const devices = await listDevices()
+      const devices = (await listDevices()).map(({ udid, name, runtime, state }) => ({ udid, name, runtime, state }))
       const booted = devices.filter(device => device.state === 'Booted').map(device => device.udid)
       let realDevices: RealDevice[] = []
       let note: string | undefined
@@ -1256,7 +1273,7 @@ export function createSimTools(host: SimHostController, options: SimToolsOptions
         // WP56: scrolls and drag paths ride the stream's WS control socket
         // (~300 ms, reads as a flick); everything else, and every case with no
         // live socket, stays on the serve-sim CLI.
-        await performSimInteract(host, device.udid, args, payloads)
+        await performSimInteract(host, device.udid, args, payloads, { display: await readDuoDisplay(device, exec.signal) })
       } catch (error) {
         throw new Error(`ios_sim_interact: serve-sim ${args.action} failed: ${errorMessage(error)}`)
       }

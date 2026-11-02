@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       serve-sim:
-        specifier: ^0.1.45
-        version: 0.1.45(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3)
+        specifier: 0.1.49-beta.139.1
+        version: 0.1.49-beta.139.1(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3)
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: ^4.0.2
@@ -821,8 +821,8 @@ packages:
   scheduler@0.23.2:
     resolution: {integrity: sha512-UOShsPwz7NrMUqhR6t0hWjFduvOzbtv7toDH1/hIrfRNIDBnnBWd0CwJTGvTpngVlmwGCdP9/Zl/tVrDqcuYzQ==}
 
-  serve-sim@0.1.45:
-    resolution: {integrity: sha512-I9YBJRz7DETanzh6hRD1yaVcUPO+xe4egjGNArk22mO7SIWZVCunHVTwpAbriP7H0aZMIKfQyVpuqvYonuKxBw==}
+  serve-sim@0.1.49-beta.139.1:
+    resolution: {integrity: sha512-oWN0RJ11Vqnvr9irScNj847MsjusPzAS9YllcMsRh13Dq0feW+EUK0XEOKIJe7dsq0Wh7tHgXw449+BOzmRwCA==}
     engines: {node: '>=20'}
     hasBin: true
 
@@ -1488,7 +1488,7 @@ snapshots:
     dependencies:
       loose-envify: 1.4.0
 
-  serve-sim@0.1.45(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3):
+  serve-sim@0.1.49-beta.139.1(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3):
     dependencies:
       inspect-webkit: 0.0.5(typescript@6.0.3)
       sonner: 2.0.8(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)

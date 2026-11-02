@@ -31,6 +31,7 @@ import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -40,7 +41,12 @@ import {
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { pluginEnv } from './plugin-env.js'
+import type { HingeDevice } from './hinge.js'
+import { readDuoDisplay, sameDuoDisplay, type DuoDisplay } from './duo-display.js'
+import { readWithAxeSession } from './ax-reader.js'
+import { withSimDeviceRead } from './sim-device-operations.js'
 
 /** AXe release this plugin pins (supports Xcode 26 and 27). */
 export const AXE_VERSION = '1.8.0'
@@ -284,7 +290,9 @@ async function downloadAxeRelease(): Promise<string> {
   mkdirSync(base, { recursive: true })
   const tmpArchive = join(base, `.axe-${AXE_VERSION}-${process.pid}-${Date.now()}.tar.gz.tmp`)
   try {
-    await new Promise<void>((resolveDownload, rejectDownload) => {
+    const bundled = fileURLToPath(new URL('../assets/axe/AXe-macOS-v1.8.0-universal.tar.gz', import.meta.url))
+    if (existsSync(bundled)) copyFileSync(bundled, tmpArchive)
+    else await new Promise<void>((resolveDownload, rejectDownload) => {
       execFile('curl', [
         '-fsSL',
         '--retry', '3',
@@ -334,7 +342,10 @@ async function downloadAxeRelease(): Promise<string> {
 }
 
 /** Shared in-flight download so concurrent tool calls wait on one fetch. */
-let downloadPromise: Promise<string> | undefined
+let downloadPromise: Promise<void> | undefined
+let downloadFailure: { at: number; message: string } | undefined
+const AXE_SETUP_WAIT_MS = 8_000
+const AXE_DOWNLOAD_RETRY_MS = 5 * 60_000
 
 /**
  * Resolve the helper, downloading the pinned release into the plugin cache
@@ -345,16 +356,30 @@ let downloadPromise: Promise<string> | undefined
 export async function ensureAxeBinary(): Promise<AxeBinary> {
   const resolved = resolveAxeBinary()
   if (resolved.available) return resolved
+  if (pluginEnv('IOS_AXE_BIN')) return resolved
   if (process.platform !== 'darwin' || pluginEnv('IOS_AXE_OFFLINE') === '1') return resolved
+  if (downloadFailure && Date.now() - downloadFailure.at < AXE_DOWNLOAD_RETRY_MS) {
+    return { ...resolved, reason: `${downloadFailure.message}; automatic download is cooling down. Use ios_sim_find_text meanwhile.` }
+  }
+  if (downloadPromise !== undefined) {
+    return { ...resolved, reason: 'AXe is being prepared in the background; use ios_sim_find_text meanwhile.' }
+  }
   if (downloadPromise === undefined) {
-    downloadPromise = downloadAxeRelease().catch(error => {
-      throw new Error(`axe download failed (${error instanceof Error ? error.message : String(error)}); ${AXE_INSTALL_HINT}`)
+    downloadPromise = downloadAxeRelease().then(() => {
+      downloadFailure = undefined
+    }).catch(error => {
+      downloadFailure = { at: Date.now(), message: `axe download failed (${error instanceof Error ? error.message : String(error)})` }
     }).finally(() => {
       downloadPromise = undefined
     })
   }
-  await downloadPromise
-  return resolveAxeBinary()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([downloadPromise, new Promise<void>(resolve => { timer = setTimeout(resolve, AXE_SETUP_WAIT_MS) })])
+  } finally { clearTimeout(timer) }
+  const ready = resolveAxeBinary()
+  return ready.available ? ready : { ...ready, reason: downloadFailure?.message
+    ?? 'AXe is still being prepared in the background; use ios_sim_find_text meanwhile, then retry the accessibility tool.' }
 }
 
 /**
@@ -484,12 +509,80 @@ export function parseDescribeUi(stdout: string): AxeElement[] {
   return roots
 }
 
-/** Dump the sanitized accessibility tree of a booted simulator. */
-export async function describeUi(
+/** Display context belongs to this fresh tree only; never a per-device cache. */
+const treeDisplays = new WeakMap<AxeElement[], DuoDisplay>()
+export function duoDisplayForTree(roots: AxeElement[]): DuoDisplay | undefined { return treeDisplays.get(roots) }
+
+/** AX application containers retain portrait/previous-screen bounds on Duo.
+ * Only replace that container after its actual content viewport agrees with
+ * the measured active display. Never scale descendants or combine screens. */
+export function alignDuoTree(roots: AxeElement[], display: DuoDisplay): AxeElement[] {
+  const matches = (node: AxeElement): boolean => Math.abs(node.frame.x) < 1 && Math.abs(node.frame.y) < 1
+    && Math.abs(node.frame.w - display.points.width) < 1 && Math.abs(node.frame.h - display.points.height) < 1
+  for (const root of roots) {
+    if (root.type !== 'Application' || !root.children.some(matches)) {
+      throw new Error('Duo accessibility content does not match the active display; retry after the screen settles')
+    }
+  }
+  const aligned = roots.map(root => ({ ...root, frame: { x: 0, y: 0, w: display.points.width, h: display.points.height } }))
+  treeDisplays.set(aligned, display)
+  return aligned
+}
+
+/** Dump a tree with a stable active-display context on Duo. */
+async function describeUiOnce(
   binary: AxeBinary,
   udid: string,
   signal?: AbortSignal,
+  device?: HingeDevice,
 ): Promise<AxeElement[]> {
-  const { stdout } = await execAxe(binary, ['describe-ui', '--udid', udid], AXE_EXEC_TIMEOUT_MS, signal)
-  return parseDescribeUi(stdout)
+  for (let attempt = 0; ; attempt++) {
+    const before = device === undefined ? undefined : await readDuoDisplay(device, signal)
+    let stdout: string
+    try {
+      const session = before !== undefined && binary.source === 'cache' && binary.command
+        ? readWithAxeSession(binary.command, udid, signal) : undefined
+      stdout = session !== undefined ? await session
+        : (await execAxe(binary, ['describe-ui', '--udid', udid], AXE_EXEC_TIMEOUT_MS, signal)).stdout
+    } catch (error) {
+      // AXe's testmanagerd remote session can be left disconnected after a
+      // simulator restart. Recover this observed transport failure once;
+      // do not restart apps or hide arbitrary accessibility failures.
+      if (before === undefined || attempt > 0 || !/Timed out creating the simulator remote automation session|Channel disconnected/i.test(String(error))) throw error
+      await new Promise<void>((resolve, reject) => {
+        execFile('xcrun', ['simctl', 'spawn', udid, 'launchctl', 'kickstart', '-k', 'user/foreground/com.apple.testmanagerd'],
+          { timeout: 5_000, maxBuffer: 1024 * 1024, signal }, error => error === null ? resolve() : reject(error))
+      }).catch(error => {
+        signal?.throwIfAborted()
+        // kickstart may have restarted the daemon before its CLI times out.
+        // Only a fresh, independently validated AX read can prove recovery.
+        if ((error as { killed?: boolean }).killed !== true) throw error
+      })
+      continue
+    }
+    const roots = parseDescribeUi(stdout)
+    if (before === undefined) return roots
+    const after = await readDuoDisplay(device!, signal)
+    try {
+      if (!after || !sameDuoDisplay(before, after)) throw new Error('Duo display changed while reading accessibility; retry with the current screen')
+      return alignDuoTree(roots, after)
+    } catch (error) {
+      if (attempt >= 1) throw error
+      signal?.throwIfAborted()
+    }
+  }
+}
+
+const describeQueues = new Map<string, Promise<unknown>>()
+/** One remote automation session per device: parallel model reads must not
+ * compete for testmanagerd. Other simulators remain independent. */
+export async function describeUi(binary: AxeBinary, udid: string, signal?: AbortSignal, device?: HingeDevice): Promise<AxeElement[]> {
+  const previous = describeQueues.get(udid) ?? Promise.resolve()
+  const pending = previous.catch(() => {}).then(() => {
+    signal?.throwIfAborted()
+    return withSimDeviceRead(udid, signal, freshSignal => describeUiOnce(binary, udid, freshSignal, device))
+  })
+  describeQueues.set(udid, pending)
+  try { return await pending }
+  finally { if (describeQueues.get(udid) === pending) describeQueues.delete(udid) }
 }

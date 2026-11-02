@@ -51,10 +51,12 @@ import type { SimHostController } from './sim-host.js'
 import {
   getDevice,
   takeScreenshot,
+  type SimulatorDevice,
 } from './simctl.js'
 import {
   AXE_INSTALL_HINT,
   describeUi,
+  duoDisplayForTree,
   ensureAxeBinary,
   execAxe,
   resolveAxeBinary,
@@ -85,6 +87,7 @@ import {
   type OcrRect,
   type PixelSize,
 } from './ocr-backend.js'
+import { tapDuoDisplay, readDuoDisplay, requireDuoScreenshotSize, type DuoDisplay } from './duo-display.js'
 import type { StreamScreenshot } from './stream-source.js'
 import { detectListRows } from './list-rows.js'
 import {
@@ -761,10 +764,11 @@ async function captureScreenshot(
   store: ScreenshotStore,
   udid: string,
   signal?: AbortSignal,
+  context?: { device: SimulatorDevice; display?: DuoDisplay },
 ): Promise<ScreenshotCapture> {
-  const device = await getDevice(udid)
+  const device = context?.device ?? await getDevice(udid)
   const path = store.nextPath(device.udid)
-  await takeScreenshot(device.udid, path, signal)
+  await takeScreenshot(device.udid, path, signal, { device, display: context?.display })
   const bytes = statSync(path).size
   const size = readPngSize(path)
   return {
@@ -1187,7 +1191,7 @@ export function createSimUiTools(host: SimHostController, options: SimUiToolsOpt
       const binary = await requireAxeBinary('ios_sim_ui_tree')
       let roots: AxeElement[]
       try {
-        roots = await describeUi(binary, target.device.udid, exec.signal)
+        roots = await describeUi(binary, target.device.udid, exec.signal, target.device)
       } catch (error) {
         throw new Error(`ios_sim_ui_tree: could not read the accessibility tree of ${target.device.name} (${target.device.udid}): ${errorMessage(error)}`)
       }
@@ -1209,7 +1213,11 @@ export function createSimUiTools(host: SimHostController, options: SimUiToolsOpt
     name: 'ios_sim_tap_element',
     description: 'Tap an accessibility element on a booted iOS Simulator (AXe) or on a USB-connected '
       + 'physical iOS device (WebDriverAgent; pass its udid from ios_sim_devices.realDevices) by '
-      + 'identity (identifier and/or label) instead of raw coordinates. The selector matches exactly '
+      + 'identity (identifier and/or label) instead of raw coordinates. When the identifier is already known, '
+      + 'call this tool DIRECTLY: it reads a fresh tree itself, so a preceding ui_tree/find_text call '
+      + 'just to relocate the same identifier duplicates work. Use expect_text for the destination; '
+      + 'when expected.matched is true, continue without another screenshot/find_text verification. '
+      + 'The selector matches exactly '
       + 'first, then case-insensitively as a substring. Nested duplicates (a row mirroring its label '
       + 'onto child text) collapse to one target; if several distinct elements still match, the error '
       + 'lists every candidate with its label, frame, and visible/enabled flags. Only visible and '
@@ -1342,7 +1350,7 @@ export function createSimUiTools(host: SimHostController, options: SimUiToolsOpt
         const screenshot = await captureWdaScreenshot('ios_sim_tap_element', screenshots, wda!, target.device)
         const expected = expectation === undefined
           ? undefined
-          : await runTapExpectation('ios_sim_tap_element', target, screenshots, wda, expectation.text, expectation.mode, exec.signal)
+          : await runTapExpectation('ios_sim_tap_element', target, screenshots, wda, expectation.text, expectation.mode, exec.signal, screenshot)
         const tapped: SimTapElementResult['element'] = {
           type: element.type,
           ...(element.label === undefined ? {} : { label: element.label }),
@@ -1367,22 +1375,28 @@ export function createSimUiTools(host: SimHostController, options: SimUiToolsOpt
       const binary = await requireAxeBinary('ios_sim_tap_element')
       let roots: AxeElement[]
       try {
-        roots = await describeUi(binary, target.device.udid, exec.signal)
+        roots = await describeUi(binary, target.device.udid, exec.signal, target.device)
       } catch (error) {
         throw new Error(`ios_sim_tap_element: could not read the accessibility tree of ${target.device.name} (${target.device.udid}): ${errorMessage(error)}`)
       }
       const { element } = resolveTapTarget(roots, selector, gate)
       const center = frameCenter(element.frame)
       try {
-        await execAxe(binary, ['tap', '-x', String(center.x), '-y', String(center.y), '--udid', target.device.udid], 60_000, exec.signal)
+        const display = duoDisplayForTree(roots)
+        if (display !== undefined) {
+          await tapDuoDisplay(host, target.device, display,
+            { x: center.x / display.points.width, y: center.y / display.points.height }, exec.signal)
+        } else {
+          await execAxe(binary, ['tap', '-x', String(center.x), '-y', String(center.y), '--udid', target.device.udid], 60_000, exec.signal)
+        }
       } catch (error) {
-        throw new Error(`ios_sim_tap_element: AXe tap at (${center.x}, ${center.y}) failed: ${errorMessage(error)}`)
+        throw new Error(`ios_sim_tap_element: simulator tap at (${center.x}, ${center.y}) failed: ${errorMessage(error)}`)
       }
       await sleep(TAP_SETTLE_MS)
       const screenshot = await captureScreenshot(screenshots, target.device.udid, exec.signal)
       const expected = expectation === undefined
         ? undefined
-        : await runTapExpectation('ios_sim_tap_element', target, screenshots, wda, expectation.text, expectation.mode, exec.signal)
+        : await runTapExpectation('ios_sim_tap_element', target, screenshots, wda, expectation.text, expectation.mode, exec.signal, screenshot)
       const tapped: SimTapElementResult['element'] = {
         type: element.type,
         ...(element.label === undefined ? {} : { label: element.label }),
@@ -1574,6 +1588,12 @@ async function simPointSize(
   pixelSize: PixelSize,
   signal?: AbortSignal,
 ): Promise<{ size: PixelSize; note?: string }> {
+  const device = await getDevice(udid)
+  const display = await readDuoDisplay(device, signal)
+  if (display !== undefined) {
+    requireDuoScreenshotSize(display, pixelSize)
+    return { size: display.points }
+  }
   const cacheKey = simPointSizeCacheKey(udid, pixelSize)
   const cached = simPointSizeCache.get(cacheKey)
   if (cached !== undefined) {
@@ -1584,7 +1604,7 @@ async function simPointSize(
   try {
     const binary = resolveAxeBinary()
     if (binary.available && binary.command !== undefined) {
-      const roots = await describeUi(binary, udid, signal)
+      const roots = await describeUi(binary, udid, signal, device)
       const size = screenSize(roots)
       if (size.width > 0 && size.height > 0) {
         // Only a RESOLVED size is cached: the pixel-space degradation below is
@@ -1624,8 +1644,14 @@ async function captureOcrFrame(
     }
     return { path: shot.path, bytes: shot.bytes, pixelSize, pointSize, device: shot.device }
   }
-  const shot = await captureScreenshot(screenshots, target.device.udid, signal)
+  const display = await readDuoDisplay(target.device, signal)
+  const shot = await captureScreenshot(screenshots, target.device.udid, signal, { device: target.device, display })
   const pixelSize = requirePixelSize(shot, tool)
+  if (display !== undefined) {
+    requireDuoScreenshotSize(display, pixelSize)
+    // takeScreenshot already verified this observation's display after capture.
+    return { path: shot.path, bytes: shot.bytes, pixelSize, pointSize: display.points, device: shot.device }
+  }
   const resolved = await simPointSize(target.device.udid, pixelSize, signal)
   return {
     path: shot.path,
@@ -1756,10 +1782,22 @@ async function runTapExpectation(
   text: string,
   mode: 'appear' | 'disappear',
   signal?: AbortSignal,
+  firstScreenshot?: ScreenshotCapture,
 ): Promise<OcrExpectationResult> {
   const intervalMs = target.kind === 'real' ? OCR_POLL_INTERVAL_REAL_MS : OCR_POLL_INTERVAL_SIM_MS
   const outcome = await pollForText(
-    () => readOcrOnce(tool, target, screenshots, wda, signal).then(snapshot => snapshot.items),
+    async () => {
+      signal?.throwIfAborted()
+      // Reuse the result card's POST-tap capture once. If the UI is still
+      // animating, subsequent polls capture fresh frames as before.
+      if (firstScreenshot !== undefined && mode === 'appear') {
+        const frame = firstScreenshot
+        firstScreenshot = undefined
+        return runOcr(tool, frame.path, frame.device.name, signal)
+      }
+      firstScreenshot = undefined
+      return readOcrOnce(tool, target, screenshots, wda, signal).then(snapshot => snapshot.items)
+    },
     text,
     mode,
     TAP_EXPECTATION_BUDGET_MS,
@@ -2245,7 +2283,7 @@ export function createSimOcrTools(host: SimHostController, options: SimUiToolsOp
         const screenshot = await captureWdaScreenshot('ios_sim_tap_text', screenshots, wda, device)
         const expected = expectation === undefined
           ? undefined
-          : await runTapExpectation('ios_sim_tap_text', { kind: 'real', device }, screenshots, wda, expectation.text, expectation.mode, exec.signal)
+          : await runTapExpectation('ios_sim_tap_text', { kind: 'real', device }, screenshots, wda, expectation.text, expectation.mode, exec.signal, screenshot)
         return {
           action: 'tap-text',
           text: item.text,
@@ -2264,8 +2302,14 @@ export function createSimOcrTools(host: SimHostController, options: SimUiToolsOp
       if (!status.running || status.device === undefined) {
         throw new Error('ios_sim_tap_text: no simulator is being streamed — call ios_sim_boot first, then tap text on the live view')
       }
+      const device = await getDevice(status.device)
+      if (args.udid !== undefined && args.udid !== device.udid && args.udid !== device.name) {
+        throw new Error('ios_sim_tap_text: requested device is not the streamed simulator')
+      }
+      const display = await readDuoDisplay(device, exec.signal)
       const shot = await captureScreenshot(screenshots, status.device, exec.signal)
       const pixelSize = requirePixelSize(shot, 'ios_sim_tap_text')
+      if (display !== undefined) requireDuoScreenshotSize(display, pixelSize)
       const resolved = await simPointSize(status.device, pixelSize, exec.signal)
       const items = await runOcr('ios_sim_tap_text', shot.path, shot.device.name, exec.signal)
       const { item } = resolveOcrTextTarget(filterOcrItems(items, query, minConfidence), query, items, minConfidence)
@@ -2277,7 +2321,11 @@ export function createSimOcrTools(host: SimHostController, options: SimUiToolsOp
         y: losslessNumber(Math.round(normalizedCenter.y * 10_000) / 10_000),
       }
       try {
-        await host.control(['tap', '-d', status.device, String(tap.x), String(tap.y)])
+        if (display !== undefined) {
+          await tapDuoDisplay(host, device, display, tap, exec.signal)
+        } else {
+          await host.control(['tap', '-d', status.device, String(tap.x), String(tap.y)])
+        }
       } catch (error) {
         throw new Error(`ios_sim_tap_text: serve-sim tap at (${tap.x}, ${tap.y}) failed: ${errorMessage(error)}`)
       }
@@ -2287,7 +2335,7 @@ export function createSimOcrTools(host: SimHostController, options: SimUiToolsOp
       const expectationTarget: ToolTarget = { kind: 'simulator', device: await getDevice(status.device) }
       const expected = expectation === undefined
         ? undefined
-        : await runTapExpectation('ios_sim_tap_text', expectationTarget, screenshots, wda, expectation.text, expectation.mode, exec.signal)
+        : await runTapExpectation('ios_sim_tap_text', expectationTarget, screenshots, wda, expectation.text, expectation.mode, exec.signal, screenshot)
       return {
         action: 'tap-text',
         text: item.text,

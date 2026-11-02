@@ -1,0 +1,369 @@
+#!/usr/bin/env bash
+# hinge — control the hinge angle of a foldable iPhone Simulator (iPhone Duo).
+set -euo pipefail
+
+VERSION="0.3.0"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+HELPER_SRC="$SCRIPT_DIR/hinge_helper.m"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/hinge"
+DEVICE="${HINGE_DEVICE:-}"
+# Set by resolve_device.
+UDID=""
+NAME=""
+# Seconds to wait for CoreMotion to report a new angle; 0 sends without confirming.
+TIMEOUT=2
+JSON=0
+
+usage() {
+  cat <<EOF
+Usage: hinge [-d <device>] [-t <seconds>] [--json] <command>
+
+Commands:
+  <degrees>                   Set hinge angle, 0 (closed) to 180 (flat)
+  set <degrees>               Same as above
+  open                        Unfold flat (180°)
+  close                       Fold closed (0°)
+  half                        Half-open (90°)
+  sweep <from> <to> [seconds] Animate between two angles (default 1s)
+  get                         Print current hinge angle
+  posture                     Print the angle, orientation, and integrated displays
+  screenshot <path>           Save a PNG of the display that hosts the UI
+  rotate <left|right>         Rotate 90°, like Device Hub's Rotate Left/Right
+  orient <orientation>        Set orientation: portrait, landscape-left, landscape-right,
+                              portrait-upside-down
+  orientation                 Print current orientation
+  help                        Show this help
+
+Options:
+  -d, --device <device>       Simulator UDID or name (default: \$HINGE_DEVICE, else
+                              the only booted iPhone Duo)
+  -t, --timeout <seconds>     Seconds to confirm a new angle (default 2, 0 to skip)
+  -j, --json                  Print JSON (get, posture, orientation, screenshot)
+  -h, --help                  Show this help
+  -v, --version               Print version
+EOF
+}
+
+die() { echo "hinge: $*" >&2; exit 1; }
+
+is_number() { [[ "$1" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; }
+
+# An angle outside 0-180 is a mistake, not something to clamp silently.
+is_angle() { is_number "$1" && awk -v value="$1" 'BEGIN { exit !(value >= 0 && value <= 180) }'; }
+
+require_angle() { is_angle "$1" || die "angle must be a number from 0 to 180: $1"; }
+
+# Prints "<udid><tab><name><tab><device type>" for every booted simulator.
+# simctl's JSON puts each key on its own line, and a device has no nested objects.
+booted_devices() {
+  xcrun simctl list devices booted -j 2>/dev/null | awk '
+    function value(line) {
+      sub(/^[^:]*:[ \t]*"/, "", line)
+      sub(/",?[ \t]*$/, "", line)
+      gsub(/\\\//, "/", line)
+      gsub(/\\"/, "\"", line)
+      return line
+    }
+    /^[ \t]*"udid" :/ { udid = value($0) }
+    /^[ \t]*"name" :/ { name = value($0) }
+    /^[ \t]*"deviceTypeIdentifier" :/ { type = value($0) }
+    /^[ \t]*"state" :/ { state = value($0) }
+    /^[ \t]*}/ {
+      if (udid != "" && state == "Booted") print udid "\t" name "\t" type
+      udid = name = type = state = ""
+    }'
+}
+
+# Prints the devices of a booted_devices list as an indented "<udid>  <name>" list.
+list_devices() { printf '%s\n' "$1" | awk -F'\t' '{ print "  " $1 "  " $2 }'; }
+
+# Sets UDID and NAME from -d. Without one it takes the only booted iPhone Duo, or
+# the only booted simulator, and never guesses between several.
+resolve_device() {
+  local devices matches
+  devices="$(booted_devices)"
+  [[ -n "$devices" ]] || die "no booted simulator (boot one: xcrun simctl boot \"iPhone Duo\")"
+  if [[ -n "$DEVICE" && "$DEVICE" != booted ]]; then
+    matches="$(printf '%s\n' "$devices" | awk -F'\t' -v device="$DEVICE" \
+      'toupper($1) == toupper(device) || $2 == device')"
+    [[ -n "$matches" ]] || die "no booted simulator matches \"$DEVICE\""
+    [[ "$(printf '%s\n' "$matches" | wc -l)" -eq 1 ]] \
+      || die "several booted simulators are named \"$DEVICE\"; pass a UDID:"$'\n'"$(list_devices "$matches")"
+  else
+    matches="$(printf '%s\n' "$devices" | awk -F'\t' '$3 ~ /\.iPhone-Duo/')"
+    if [[ -z "$matches" ]]; then
+      [[ "$(printf '%s\n' "$devices" | wc -l)" -eq 1 ]] \
+        || die "no booted iPhone Duo; pass -d <udid|name>:"$'\n'"$(list_devices "$devices")"
+      matches="$devices"
+    fi
+    [[ "$(printf '%s\n' "$matches" | wc -l)" -eq 1 ]] \
+      || die "several iPhone Duo simulators are booted; pass -d <udid|name> or set HINGE_DEVICE:"$'\n'"$(list_devices "$matches")"
+  fi
+  UDID="$(printf '%s' "$matches" | cut -f1)"
+  NAME="$(printf '%s' "$matches" | cut -f2)"
+}
+
+# Quotes a string for JSON.
+json_string() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  printf '"%s"' "$s"
+}
+
+# Builds the in-simulator helper once per source and Xcode version.
+helper_path() {
+  local key
+  key="$( (cat "$HELPER_SRC"; xcode-select -p) | shasum | cut -c1-12)"
+  local bin="$CACHE_DIR/hinge_helper-$key"
+  if [[ ! -x "$bin" ]]; then
+    mkdir -p "$CACHE_DIR"
+    xcrun -sdk iphonesimulator clang -arch arm64 -mios-simulator-version-min=17.0 -O2 -fobjc-arc \
+      -o "$bin.tmp" "$HELPER_SRC" -framework IOKit -framework CoreFoundation -framework Foundation \
+      -framework CoreMotion || die "failed to build helper"
+    codesign -f -s - "$bin.tmp" >/dev/null 2>&1 || die "failed to sign helper"
+    mv "$bin.tmp" "$bin"
+  fi
+  echo "$bin"
+}
+
+run_helper() {
+  local bin
+  bin="$(helper_path)"
+  xcrun simctl spawn "$UDID" "$bin" "$@"
+}
+
+# The helper confirms the angle from CoreMotion, so a simulator without a hinge
+# fails here instead of reporting a change that never happened.
+set_angle() {
+  require_angle "$1"
+  run_helper set "$1" "$TIMEOUT"
+}
+
+# Prints the current orientation in the event's naming, e.g. "landscape-left".
+get_orientation() {
+  xcrun devicectl device orientation get -d "$UDID" -q -j - 2>/dev/null \
+    | plutil -extract result.deviceOrientationNonFlat raw -o - - 2>/dev/null \
+    | sed -E 's/([a-z])([A-Z])/\1-\2/g' | tr '[:upper:]' '[:lower:]' \
+    || die "failed to read orientation"
+}
+
+# Foldables only follow Device Hub's orientation event; other simulators ignore it, so fall back to devicectl.
+# Device Hub abbreviates portrait-upside-down to "pud" in the event.
+set_orientation() {
+  local event_value="$1" devicectl_name
+  case "$1" in
+    portrait) devicectl_name=portrait ;;
+    landscape-left) devicectl_name=landscapeLeft ;;
+    landscape-right) devicectl_name=landscapeRight ;;
+    portrait-upside-down) devicectl_name=portraitUpsideDown; event_value=pud ;;
+    *) die "orientation must be portrait, landscape-left, landscape-right, or portrait-upside-down: $1" ;;
+  esac
+  run_helper orient "$event_value"
+  [[ "$(get_orientation)" == "$1" ]] && return
+  xcrun devicectl device orientation set "$devicectl_name" -d "$UDID" -q >/dev/null 2>&1 || true
+  [[ "$(get_orientation)" == "$1" ]] || die "orientation did not change to $1"
+}
+
+# Steps 90° from the current orientation in Device Hub's order: Rotate Left goes portrait -> landscape-left
+# -> portrait-upside-down -> landscape-right, and Rotate Right goes the other way.
+rotate() {
+  local order=(portrait landscape-left portrait-upside-down landscape-right) current step i
+  case "$1" in
+    left|l) step=1 ;;
+    right|r) step=3 ;;
+    *) die "direction must be left or right: $1" ;;
+  esac
+  current="$(get_orientation)"
+  for i in 0 1 2 3; do
+    if [[ "${order[$i]}" == "$current" ]]; then
+      local target="${order[$(( (i + step) % 4 ))]}"
+      set_orientation "$target"
+      echo "$target"
+      return
+    fi
+  done
+  die "unknown current orientation: $current"
+}
+
+# Reads one field of the n-th display from a devicectl displays document.
+display_field() {
+  printf '%s' "$1" | plutil -extract "result.displays.$2.$3" raw -o - - 2>/dev/null
+}
+
+# Reads the integrated displays into the DISPLAY_* arrays and sets ACTIVE to the
+# index of the one that hosts the UI, or -1.
+#
+# That is the "active" flag, not the backlight: a locked device keeps its display
+# active with the backlight dimmed, a folded Duo lights its cover as inactiveOn,
+# and the backlight follows a fold up to 3 s after "active". Some devices omit
+# "active", and then a lit backlight stands in for it.
+read_displays() {
+  local doc i=0 n=0 name active
+  doc="$(xcrun devicectl device info displays -d "$UDID" -q -j - 2>/dev/null)" \
+    || die "failed to read displays"
+  DISPLAY_NAME=() DISPLAY_ID=() DISPLAY_PRIMARY=() DISPLAY_ACTIVE=() DISPLAY_BACKLIGHT=()
+  DISPLAY_ROTATION=() DISPLAY_WIDTH=() DISPLAY_HEIGHT=() DISPLAY_SCALE=()
+  ACTIVE=-1
+  while name="$(display_field "$doc" "$i" name)"; do
+    if display_field "$doc" "$i" type.integrated >/dev/null; then
+      DISPLAY_NAME[n]="$name"
+      DISPLAY_ID[n]="$(display_field "$doc" "$i" displayId || echo null)"
+      DISPLAY_PRIMARY[n]="$(display_field "$doc" "$i" primary || echo false)"
+      DISPLAY_BACKLIGHT[n]="$(display_field "$doc" "$i" backlightState || echo unknown)"
+      DISPLAY_ROTATION[n]="$(display_field "$doc" "$i" currentOrientation || echo unknown)"
+      DISPLAY_WIDTH[n]="$(display_field "$doc" "$i" nativeSize.0 || echo null)"
+      DISPLAY_HEIGHT[n]="$(display_field "$doc" "$i" nativeSize.1 || echo null)"
+      DISPLAY_SCALE[n]="$(display_field "$doc" "$i" pointScale || echo null)"
+      if ! active="$(display_field "$doc" "$i" active)"; then
+        case "${DISPLAY_BACKLIGHT[n]}" in off|unknown) active=false ;; *) active=true ;; esac
+      fi
+      DISPLAY_ACTIVE[n]="$active"
+      if [[ "$active" == true && "$ACTIVE" -lt 0 ]]; then ACTIVE=$n; fi
+      n=$((n + 1))
+    fi
+    i=$((i + 1))
+  done
+  [[ $n -gt 0 ]] || die "the simulator reports no integrated display"
+  # Older runtimes report neither flag; a single display hosts the UI anyway.
+  if [[ $ACTIVE -lt 0 && $n -eq 1 ]]; then ACTIVE=0; DISPLAY_ACTIVE[0]=true; fi
+}
+
+posture() {
+  local angle orientation i flags
+  angle="$(run_helper get 2>/dev/null)" || angle=""
+  orientation="$(get_orientation)"
+  read_displays
+  if [[ $JSON -eq 1 ]]; then
+    printf '{\n  "device": {"udid": %s, "name": %s},\n' "$(json_string "$UDID")" "$(json_string "$NAME")"
+    printf '  "angle": %s,\n  "orientation": %s,\n' "${angle:-null}" "$(json_string "$orientation")"
+    if [[ $ACTIVE -ge 0 ]]; then
+      printf '  "activeDisplay": %s,\n' "$(json_string "${DISPLAY_NAME[ACTIVE]}")"
+    else
+      printf '  "activeDisplay": null,\n'
+    fi
+    printf '  "displays": ['
+    for i in "${!DISPLAY_NAME[@]}"; do
+      [[ $i -eq 0 ]] || printf ','
+      printf '\n    {"name": %s, "id": %s, "primary": %s, "active": %s, "backlight": %s, "rotation": %s, "size": [%s, %s], "scale": %s}' \
+        "$(json_string "${DISPLAY_NAME[i]}")" "${DISPLAY_ID[i]}" "${DISPLAY_PRIMARY[i]}" "${DISPLAY_ACTIVE[i]}" \
+        "$(json_string "${DISPLAY_BACKLIGHT[i]}")" "$(json_string "${DISPLAY_ROTATION[i]}")" \
+        "${DISPLAY_WIDTH[i]}" "${DISPLAY_HEIGHT[i]}" "${DISPLAY_SCALE[i]}"
+    done
+    printf '\n  ]\n}\n'
+    return
+  fi
+  echo "device: $NAME ($UDID)"
+  echo "angle: ${angle:-unavailable}"
+  echo "orientation: $orientation"
+  for i in "${!DISPLAY_NAME[@]}"; do
+    flags=""
+    if [[ "${DISPLAY_PRIMARY[i]}" == true ]]; then flags=" (primary)"; fi
+    if [[ "${DISPLAY_ACTIVE[i]}" == true ]]; then flags="$flags (active)"; fi
+    echo "display: ${DISPLAY_NAME[i]}$flags (backlight: ${DISPLAY_BACKLIGHT[i]})"
+  done
+}
+
+# simctl captures the inner display of a foldable unless told otherwise, which is
+# a black image while folded, so name the display that hosts the UI. Right after
+# a fold that display can be active with its backlight still off, so give the
+# backlight a moment to come on.
+screenshot() {
+  local path="$1" display args=() output attempt=0
+  read_displays
+  while [[ $ACTIVE -ge 0 && "${DISPLAY_BACKLIGHT[ACTIVE]}" == off && $attempt -lt 8 ]]; do
+    sleep 0.25
+    read_displays
+    attempt=$((attempt + 1))
+  done
+  [[ $ACTIVE -ge 0 ]] || die "no display hosts the UI (is the simulator still booting?)"
+  display="${DISPLAY_NAME[ACTIVE]}"
+  if [[ "${DISPLAY_BACKLIGHT[ACTIVE]}" == off ]]; then
+    echo "hinge: warning: $display is active but its backlight is off; the image may be black" >&2
+  fi
+  # A single display needs no --display, and some runtimes reject it there.
+  if [[ ${#DISPLAY_NAME[@]} -gt 1 ]]; then args=(--display="$display"); fi
+  output="$(xcrun simctl io "$UDID" screenshot ${args[@]+"${args[@]}"} "$path" 2>&1)" \
+    || die "failed to take a screenshot of $display: $output"
+  if [[ $JSON -eq 1 ]]; then
+    printf '{"display": %s, "path": %s}\n' "$(json_string "$display")" "$(json_string "$path")"
+  else
+    echo "display: $display"
+    echo "path: $path"
+  fi
+}
+
+main() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -d|--device) [[ $# -ge 2 ]] || die "missing value for $1"; DEVICE="$2"; shift 2 ;;
+      -t|--timeout)
+        [[ $# -ge 2 ]] || die "missing value for $1"
+        is_number "$2" || die "timeout must be a number: $2"
+        TIMEOUT="$2"; shift 2 ;;
+      -j|--json) JSON=1; shift ;;
+      -v|--version) echo "$VERSION"; exit 0 ;;
+      -h|--help|help) usage; exit 0 ;;
+      *) break ;;
+    esac
+  done
+
+  [[ $# -gt 0 ]] || { usage; exit 64; }
+  local cmd="$1" arg args=()
+  shift
+  # Host adapter prepares this once, then queries the sensor directly. This
+  # does not inspect or mutate a device and needs no simctl inventory scan.
+  if [[ "$cmd" == helper-path ]]; then helper_path; return; fi
+  # --json also goes after the command, as in "hinge posture --json".
+  for arg in "$@"; do
+    case "$arg" in -j|--json) JSON=1 ;; *) args+=("$arg") ;; esac
+  done
+  set -- ${args[@]+"${args[@]}"}
+  if [[ $JSON -eq 1 ]]; then
+    case "$cmd" in
+      get|posture|orientation|screenshot) ;;
+      *) die "--json works with get, posture, orientation, and screenshot" ;;
+    esac
+  fi
+  case "$cmd" in
+    set|open|flat|unfolded|close|closed|folded|half|half-open|sweep|get|watch|posture|screenshot|rotate|orient|orientation) ;;
+    *) is_number "$cmd" || { usage >&2; exit 64; } ;;
+  esac
+  resolve_device
+
+  case "$cmd" in
+    set) [[ $# -eq 1 ]] || die "usage: hinge set <degrees>"; set_angle "$1" ;;
+    open|flat|unfolded) set_angle 180 ;;
+    close|closed|folded) set_angle 0 ;;
+    half|half-open) set_angle 90 ;;
+    sweep)
+      [[ $# -ge 2 && $# -le 3 ]] || die "usage: hinge sweep <from> <to> [seconds]"
+      local seconds="${3:-1}"
+      require_angle "$1"
+      require_angle "$2"
+      is_number "$seconds" || die "not a number: $seconds"
+      run_helper sweep "$1" "$2" "$seconds"
+      ;;
+    get)
+      local angle
+      angle="$(run_helper get)"
+      if [[ $JSON -eq 1 ]]; then printf '{"angle": %s}\n' "$angle"; else echo "$angle"; fi
+      ;;
+    watch)
+      [[ $# -eq 0 ]] || die "usage: hinge watch"
+      exec xcrun simctl spawn "$UDID" "$(helper_path)" watch
+      ;;
+    posture) posture ;;
+    screenshot) [[ $# -eq 1 ]] || die "usage: hinge screenshot <path>"; screenshot "$1" ;;
+    rotate) [[ $# -eq 1 ]] || die "usage: hinge rotate <left|right>"; rotate "$1" ;;
+    orient) [[ $# -eq 1 ]] || die "usage: hinge orient <orientation>"; set_orientation "$1" ;;
+    orientation)
+      local orientation
+      orientation="$(get_orientation)"
+      if [[ $JSON -eq 1 ]]; then printf '{"orientation": %s}\n' "$(json_string "$orientation")"; else echo "$orientation"; fi
+      ;;
+    *) set_angle "$cmd" ;;
+  esac
+}
+
+main "$@"

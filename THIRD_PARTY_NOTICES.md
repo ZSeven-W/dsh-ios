@@ -2,7 +2,7 @@
 
 This distribution includes the following third-party components.
 
-## serve-sim 0.1.45
+## serve-sim 0.1.49-beta.139.1
 
 - Role: bundled runtime dependency — the iOS Simulator stream CLI (MJPEG/H.264
   over HTTP plus a WebSocket control channel) that powers the live simulator
@@ -264,3 +264,18 @@ SOFTWARE.
   reimplementation based on public documentation only; the original
   repository carries no license, so no code from it was copied, adapted, or
   bundled.
+## hinge (vendored CLI and simulator helper)
+
+Source: https://github.com/artemnovichkov/hinge
+Version: 0.3.0, commit afb8f0bd277cb12187f0844a79542cbac35e7385.
+Copyright (c) 2026 Artem Novichkov. MIT License.
+The full license is included at assets/hinge/LICENSE.
+Local modifications add persistent read-only angle sampling and plugin integration.
+The private simulator protocol requires Xcode 27.1+ and may change in later runtimes.
+
+## AXe 1.8.0 and local read-only worker
+
+Official release: https://github.com/cameroncooke/AXe/releases/tag/v1.8.0
+The unmodified universal release archive is bundled in assets/axe/ with its MIT LICENSE.
+SHA-256: 7b76340b72e90d0f211bc7c4636f15009076eff07acef2f2b632b175debd8834.
+The local AX worker links the same official release frameworks. Its build-only headers derive from cameroncooke/idb commit 604c51013438f0c3603b720a05a44b7c5b8f286d (MIT); no Apple runtime or device assets are bundled.

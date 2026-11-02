@@ -879,6 +879,8 @@ export interface SimScreenConfig {
   width: number
   height: number
   orientation: string
+  duoViewOrientation?: string
+  hingeDegrees?: number
 }
 
 function webSocketMessageBytes(data: unknown): Uint8Array | undefined {
@@ -907,7 +909,11 @@ export function parseSimConfigFrame(data: unknown): SimScreenConfig | undefined 
       && typeof value.orientation === 'string'
       && value.orientation !== ''
     ) {
-      return { width: value.width, height: value.height, orientation: value.orientation }
+      return { width: value.width, height: value.height, orientation: value.orientation,
+        ...(typeof value.duoViewOrientation === 'string' && (SIM_ROTATE_ORIENTATIONS as readonly string[]).includes(value.duoViewOrientation)
+          ? { duoViewOrientation: value.duoViewOrientation } : {}),
+        ...(typeof value.hingeDegrees === 'number' && Number.isFinite(value.hingeDegrees) && value.hingeDegrees >= 0 && value.hingeDegrees <= 180
+          ? { hingeDegrees: value.hingeDegrees } : {}) }
     }
   } catch {
     // malformed config JSON

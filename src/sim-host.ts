@@ -852,6 +852,10 @@ export class SimHostController {
       udid,
     ], {
       stdio: ['ignore', 'pipe', 'pipe'],
+      // Scope compatibility to our child tree; never modify Apple's tools or
+      // the parent environment. The preload intercepts only Duo angle reads.
+      env: { ...process.env, NODE_OPTIONS: [process.env.NODE_OPTIONS,
+        `--import=${new URL('../assets/hinge/serve-sim-pose-compat.mjs', import.meta.url).href}`].filter(Boolean).join(' ') },
       // Group leader so stop() can reap npx → CLI → stream helper at once.
       detached: true,
     })

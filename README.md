@@ -28,6 +28,8 @@
 </p>
 <p align="center"><sub>A real iPhone driven from inside a DSH conversation — the agent's tool calls on the left, the live device panel on the right</sub></p>
 
+> iPhone Duo simulator support: flat live preview, verified hinge controls, portrait/landscape controls, and active-display coordinates. Requires Xcode 27.1+ and a Duo runtime. See [Duo setup and validation](./DUO-ADAPTATION.md).
+
 ## Why DSH iOS Simulator
 
 DSH iOS Simulator gives the agent a real iOS Simulator inside the conversation — and gives you the pixels. The agent can boot a device, build and run an Xcode project or Swift package, drive the UI by accessibility identity or by OCR text, read unified logs, and inspect processes, backtraces, and leaks, while a live stream of the device renders in a persistent sidebar panel where you can tap, drag, rotate, and press Home directly on the video. The same verbs also work on a real iPhone connected over USB: the plugin builds and launches WebDriverAgent on the phone, tunnels its control and screen ports over loopback, and streams the device into the same panel, cards, and tools. No image blocks, no screen-recording files: visual bytes reach the UI only through signed, expiring URLs served by the DSH webserver.

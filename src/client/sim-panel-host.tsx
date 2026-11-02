@@ -37,6 +37,7 @@ import { registerSimPanelSource } from './sim-panel-trigger.js'
 import { simSwitchedStreamMetaOf, SIM_DEVICE_PICKER_KEYFRAMES } from './sim-device-picker.js'
 import type { SimSwitchResponse } from './protocol.js'
 import {
+  SIM_PANEL_DEVICE_SCALE,
   SIM_PANEL_FALLBACK_LOGICAL_HEIGHT,
   SIM_PANEL_FALLBACK_LOGICAL_WIDTH,
   SIM_PANEL_SIZE_MODE_FIT,
@@ -187,7 +188,7 @@ export interface SimulatorPanelHost {
 export const SIMULATOR_PANEL_FULLSCREEN_BREAKPOINT = 760
 export const SIMULATOR_PANEL_MIN_WIDTH = 320
 export const SIMULATOR_PANEL_MAX_WIDTH = 960
-export const SIMULATOR_PANEL_LEFT_CLEARANCE = 640
+export const SIMULATOR_PANEL_LEFT_CLEARANCE = 400
 export const SIMULATOR_PANEL_DEFAULT_WIDTH = 380
 
 export interface SimulatorPanelWidthBounds {
@@ -233,7 +234,7 @@ export function simulatorPanelOrientationIsLandscape(orientation: string | undef
 
 /**
  * The comfortable landscape panel width: the width a landscape device screen
- * needs at ~420px of displayed height (natural height/natural width — the
+ * needs at its logical width, with a minimum ~420px displayed height (the
  * axes swap in landscape), falling back to the 390×844 phone aspect while no
  * natural size is known, clamped into the live bounds and snapped to a whole
  * CSS px (the WP24 integer grid the frame math follows).
@@ -248,7 +249,11 @@ export function simulatorPanelLandscapeTargetWidthOf(
     && naturalWidth > 0 && naturalHeight > 0
     ? naturalHeight / naturalWidth
     : SIM_PANEL_FALLBACK_LOGICAL_HEIGHT / SIM_PANEL_FALLBACK_LOGICAL_WIDTH
-  const needed = SIMULATOR_PANEL_LANDSCAPE_HEIGHT_PX * landscapeAspect
+  // Preserve logical text size on wide foldables whenever the viewport allows it.
+  const logicalWidth = naturalHeight && Number.isFinite(naturalHeight) && naturalHeight > 0
+    ? naturalHeight / SIM_PANEL_DEVICE_SCALE + 48 // stage padding + slim bezel (rounded up)
+    : 0
+  const needed = Math.max(SIMULATOR_PANEL_LANDSCAPE_HEIGHT_PX * landscapeAspect, logicalWidth)
   return simPanelSnapPxOf(Math.min(bounds.max, Math.max(bounds.min, needed)))
 }
 
@@ -452,6 +457,8 @@ function SimulatorPanelSurface({
   const dockLeaseRef = useRef<SimulatorPanelDockLease>()
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth)
   const [dockUnavailable, setDockUnavailable] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+  const [expandedSizeMode, setExpandedSizeMode] = useState<SimPanelSizeMode>({ kind: 'percent', value: 100 })
   const [widthState, dispatchWidth] = useReducer(
     simulatorPanelWidthStateNext,
     simulatorPanelWidthBounds(window.innerWidth).initial,
@@ -493,7 +500,7 @@ function SimulatorPanelSurface({
   }, [])
 
   useLayoutEffect(() => {
-    if (fullscreen) return
+    if (fullscreen || expanded) return
     const root = document.getElementById('root')
     if (root === null) {
       setDockUnavailable(true)
@@ -510,19 +517,20 @@ function SimulatorPanelSurface({
       if (dockLeaseRef.current === lease) dockLeaseRef.current = undefined
       lease.release()
     }
-  }, [dockOwnerId, fullscreen, width])
+  }, [dockOwnerId, fullscreen, expanded, width])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return
       const surface = surfaceRef.current
       const targetInside = event.target instanceof Node && surface?.contains(event.target) === true
-      if (!targetInside && !fullscreen) return
+      if (!targetInside && !fullscreen && !expanded) return
+      if (expanded) { setExpanded(false); return }
       onClose()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => { window.removeEventListener('keydown', onKeyDown) }
-  }, [fullscreen, onClose])
+  }, [fullscreen, expanded, onClose])
 
   const startResize = useCallback((event: ReactPointerEvent<HTMLDivElement>): void => {
     if (fullscreen) return
@@ -589,8 +597,10 @@ function SimulatorPanelSurface({
       colorScheme={colorScheme}
       locale={locale === 'zh' ? 'zh' : 'en'}
       onClose={onClose}
-      sizeMode={sizeMode}
-      onSizeModeChange={onSizeModeChange}
+      expanded={expanded}
+      onToggleExpanded={fullscreen ? undefined : () => { setExpanded(value => !value) }}
+      sizeMode={expanded ? expandedSizeMode : sizeMode}
+      onSizeModeChange={expanded ? setExpandedSizeMode : onSizeModeChange}
       frameStyle={frameStyle}
       onFrameStyleChange={onFrameStyleChange}
       onDisplayChange={handleDisplayChange}
@@ -618,13 +628,14 @@ function SimulatorPanelSurface({
   return (
     <section
       ref={surfaceRef}
-      style={{ ...surfaceStyles.surface, width }}
-      data-simulator-panel-surface="docked"
+      style={{ ...surfaceStyles.surface, ...(expanded ? { left: 0, width: '100%', boxSizing: 'border-box', borderLeft: 'none' } : { width }) }}
+      data-simulator-panel-surface={expanded ? 'expanded' : 'docked'}
       role="complementary"
       aria-label={copy.simulator}
     >
       <div
-        style={surfaceStyles.handle}
+        hidden={expanded}
+        style={expanded ? { display: 'none' } : surfaceStyles.handle}
         role="separator"
         aria-orientation="vertical"
         aria-label={copy.resizePanel}

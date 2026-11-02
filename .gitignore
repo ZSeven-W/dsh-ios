@@ -19,3 +19,6 @@ coverage/
 
 # Local visual acceptance evidence may contain workspace or conversation data.
 artifacts/
+.codegraph/
+.cursor/
+.perf/

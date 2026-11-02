@@ -126,6 +126,7 @@ import {
   type SimDeviceSwitchController,
 } from './sim-device-picker.js'
 import { SimSelect } from './sim-select.js'
+import { SimHingeControls } from './sim-hinge-controls.js'
 import type { SimSwitchResponse } from './protocol.js'
 import type { CompatibleToolDetailsViewProps } from './details-compat.js'
 import {
@@ -155,6 +156,7 @@ import {
   SIM_FRAME_STYLE_OPTIONS,
   simFrameStyleLabelOf,
   simPanelFrameRadiusFallbackOf,
+  simPanelFrameInsetOf,
   simPanelScreenBoxOf,
   simPanelScreenRadiusOf,
   simPanelScreenWidthOf,
@@ -588,8 +590,10 @@ export function SimPhoneFrame({
   naturalHeight,
   orientation,
   frameStyle = SIM_FRAME_STYLE_BEZEL,
+  fitHeight = false,
 }: {
   children: ReactNode
+  fitHeight?: boolean
   sizeMode?: SimPanelSizeMode
   naturalWidth?: number
   /** Natural pixel height of the current stream frame (rotation base). */
@@ -660,7 +664,10 @@ export function SimPhoneFrame({
         const stagePadX = Number.parseFloat(stageComputed.paddingLeft) + Number.parseFloat(stageComputed.paddingRight)
         const stageBorderX = Number.parseFloat(stageComputed.borderLeftWidth) + Number.parseFloat(stageComputed.borderRightWidth)
         const stageContentW = stage.clientWidth - stagePadX - stageBorderX
-        if (stageContentW > 0) setFitWidth(simPanelSnapPxOf(stageContentW))
+        const stageContentH = stage.clientHeight - Number.parseFloat(stageComputed.paddingTop) - Number.parseFloat(stageComputed.paddingBottom)
+        const inset = simPanelFrameInsetOf(frameStyle) * 2
+        const heightWidth = Math.max(0, stageContentH - inset) * layout.displayW / layout.displayH + inset
+        if (stageContentW > 0) setFitWidth(simPanelSnapPxOf(fitHeight ? Math.min(stageContentW, heightWidth) : stageContentW))
       }
     }
     measure()
@@ -673,7 +680,7 @@ export function SimPhoneFrame({
     observer.observe(node)
     if (stage !== null) observer.observe(stage)
     return () => { observer.disconnect() }
-  }, [frameStyle])
+  }, [frameStyle, fitHeight, layout.displayW, layout.displayH])
   // Percent/preset modes have an exact px width: derive the radius from
   // props (deterministic SSR + instant on size-mode/orientation changes).
   // Fit falls back to the measured value.
@@ -856,6 +863,7 @@ export interface SimulatorPanelBodyProps {
   /** Header device picker (stream mode). When present it replaces the static
    * device-name subtitle; other modes keep the `device · udid` line. */
   devicePicker?: ReactNode
+  hingeControls?: ReactNode
   /** Small auto-follow pill rendered next to the picker/subtitle
    * (SimFollowIndicator — active vs overridden + one-click resume). */
   followIndicator?: ReactNode
@@ -864,6 +872,8 @@ export interface SimulatorPanelBodyProps {
   colorScheme: 'light' | 'dark'
   locale: SimLocale
   onClose?: () => void
+  expanded?: boolean
+  onToggleExpanded?: () => void
   children: ReactNode
   /** Active display size mode (defaults to fit — see sim-panel-size.ts). */
   sizeMode?: SimPanelSizeMode
@@ -909,11 +919,14 @@ export function SimulatorPanelBody({
   title,
   device,
   devicePicker,
+  hingeControls,
   mode,
   liveOpen,
   colorScheme,
   locale,
   onClose,
+  expanded = false,
+  onToggleExpanded,
   children,
   followIndicator,
   sizeMode = SIM_PANEL_SIZE_MODE_FIT,
@@ -949,7 +962,7 @@ export function SimulatorPanelBody({
       role="complementary"
       aria-label={copy.simulator}
     >
-      <div style={PANEL_STYLES.header} data-sim-panel-header="true">
+      <div style={{ ...PANEL_STYLES.header, ...(onToggleExpanded ? { paddingRight: 74 } : {}) }} data-sim-panel-header="true">
         <div style={PANEL_STYLES.titleCluster}>
           <span style={PANEL_STYLES.title}>{title}</span>
         </div>
@@ -1008,6 +1021,18 @@ export function SimulatorPanelBody({
             })}
         </div>
         )}
+        {onToggleExpanded !== undefined ? (
+          <button type="button"
+            style={{ ...PANEL_STYLES.closeButton, right: 40 }}
+            onClick={onToggleExpanded}
+            aria-label={expanded ? copy.collapsePreview : copy.expandPreview}
+            title={expanded ? copy.collapsePreview : copy.expandPreview}
+            aria-pressed={expanded} data-sim-preview-expand="true">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+              <path d={expanded ? 'M1 5h4V1 M11 1v4h4 M15 11h-4v4 M5 15v-4H1' : 'M5 1H1v4 M11 1h4v4 M15 11v4h-4 M5 15H1v-4'} />
+            </svg>
+          </button>
+        ) : null}
         {onClose !== undefined ? (
           <button
             type="button"
@@ -1097,6 +1122,7 @@ export function SimulatorPanelBody({
             />
           ) : null}
         </div>
+        {hingeControls}
       </div>
       )}
       <div style={PANEL_STYLES.stage} data-sim-panel-stage="true">
@@ -1106,6 +1132,7 @@ export function SimulatorPanelBody({
         {!streamChrome ? children : (
           <SimPhoneFrame
             sizeMode={sizeMode}
+            fitHeight={expanded || orientation === 'landscape_left' || orientation === 'landscape_right'}
             naturalWidth={naturalWidth}
             naturalHeight={naturalHeight}
             orientation={orientation}
@@ -1406,6 +1433,8 @@ export interface SimulatorPanelProps {
   colorScheme: 'light' | 'dark'
   locale: SimLocale
   onClose?: () => void
+  expanded?: boolean
+  onToggleExpanded?: () => void
   /** Controlled size mode (the panel host owns it via the panel store). */
   sizeMode?: SimPanelSizeMode
   /** Controlled size-mode change (absent → internal state, fit default). */
@@ -1454,6 +1483,8 @@ export function SimulatorPanel({
   colorScheme,
   locale,
   onClose,
+  expanded = false,
+  onToggleExpanded,
   sizeMode,
   onSizeModeChange,
   frameStyle,
@@ -1616,6 +1647,14 @@ export function SimulatorPanel({
     seededGrant,
   })
 
+  // MJPEG may change resolution without another img load event when Duo
+  // changes panels. The control config carries the new framebuffer size.
+  useEffect(() => {
+    if (streamMeta === undefined || realDevice !== undefined || streamSession.frameSize === undefined) return
+    setNaturalWidth(streamSession.frameSize.width)
+    setNaturalHeight(streamSession.frameSize.height)
+  }, [streamMeta, realDevice, streamSession.frameSize])
+
   // The real-device session: status check → real-stream grant → the same
   // SimLiveFrameBody surface the simulator streams through. Idle (checking
   // only) while no physical device is picked — one unconditional hook keeps
@@ -1673,8 +1712,10 @@ export function SimulatorPanel({
     const seedUrl = seedStreamUrlRef.current
     if (seedUrl !== undefined
       && streamSession.phase === 'live'
-      && streamSession.streamUrl === seedUrl) {
-      // The new grant (the switch-device capability) is live: swap done.
+      && streamSession.videoReady
+      && streamMeta?.device?.udid === switchTargetRef.current) {
+      // A decoded frame for the target, including a recovered grant, proves
+      // the switch is done. A WS handshake or minted URL alone does not.
       seedStreamUrlRef.current = undefined
       setSwitching(false)
       if (followSwitchRef.current) {
@@ -1695,7 +1736,7 @@ export function SimulatorPanel({
         dispatchFollow({ kind: 'switch-settled', now: Date.now() })
       }
     }
-  }, [switching, streamSession.phase, streamSession.streamUrl, streamMeta])
+  }, [switching, streamSession.phase, streamSession.videoReady, streamMeta])
 
   // Server truth wins over local belief. When the stream cannot be granted
   // for the device the panel thinks it owns, ask /status what is actually
@@ -1872,6 +1913,14 @@ export function SimulatorPanel({
     <SimulatorPanelBody
       title={title}
       device={streamMeta?.device ?? meta?.device}
+      hingeControls={mode === 'stream' && streamMeta?.device?.udid !== undefined ? (
+        <SimHingeControls key={streamMeta.device.udid} device={streamMeta.device.udid}
+          deviceName={streamMeta.device.name ?? ''} locale={locale} fetcher={streamSession.hingeFetcher}
+          ready={streamSession.videoReady && streamSession.wsOpen}
+          displaySize={streamSession.videoReady ? streamSession.frameSize : undefined}
+          measuredAngle={streamSession.videoReady ? streamSession.hingeDegrees : undefined}
+          displayOrientation={streamSession.frameSize ? (simPanelFrameLayoutOf(streamSession.orientation, streamSession.frameSize.width, streamSession.frameSize.height).displayW > simPanelFrameLayoutOf(streamSession.orientation, streamSession.frameSize.width, streamSession.frameSize.height).displayH ? 'landscape' : 'portrait') : undefined} />
+      ) : undefined}
       devicePicker={streamMeta !== undefined || realDevice !== undefined || screenshotMeta !== undefined ? (
         <SimDevicePicker
           fetcher={fetcher}
@@ -1895,6 +1944,8 @@ export function SimulatorPanel({
       colorScheme={colorScheme}
       locale={locale}
       onClose={onClose}
+      expanded={expanded}
+      onToggleExpanded={onToggleExpanded}
       sizeMode={activeSizeMode}
       naturalWidth={naturalWidth}
       naturalHeight={naturalHeight}
@@ -1910,7 +1961,7 @@ export function SimulatorPanel({
         ? streamSession.sendHome
         : mode === 'real-device' ? realSession.sendHome : undefined}
       onRotate={mode === 'stream'
-        ? streamSession.sendRotate
+        ? streamSession.hingeDegrees !== undefined || /\biPhone Duo\b/i.test(streamMeta?.device?.name ?? '') ? undefined : streamSession.sendRotate
         : mode === 'real-device' ? realSession.sendRotate : undefined}
       onRefresh={mode === 'stream'
         ? streamSession.refresh

@@ -689,7 +689,7 @@ try {
   // ── H. live pass: phone connected AND WDA up on :8100 (read-only) ────────
   let live = false
   try {
-    const devices = await listRealDevices()
+    const devices = process.argv.includes("--skip-live") ? [] : await listRealDevices()
     const phone = devices.find(d => d.udid === DEVICE_UDID)
     live = phone !== undefined && await probeWdaControlTunnel(8100)
     if (!live) {
@@ -854,9 +854,9 @@ try {
     portrait !== landscape && portrait !== other && landscape !== other,
     `${portrait} | ${landscape} | ${other}`,
   )
-  const booted = (await listDevices()).filter(device => device.state === 'Booted')
+  const booted = process.argv.includes('--skip-live') ? [] : (await listDevices()).filter(device => device.state === 'Booted')
   if (booted.length === 0) {
-    step('live: a second find_text reuses the resolved point size', 'SKIP', 'no booted simulator')
+    step('live: a second find_text reuses the resolved point size', 'SKIP', process.argv.includes('--skip-live') ? '--skip-live' : 'no booted simulator')
   } else {
     const cacheDir = mkdtempSync(join(tmpdir(), 'dsh-ios-ptsize-'))
     tempDirs.push(cacheDir)

@@ -8,6 +8,7 @@
  */
 
 import { execFile } from 'node:child_process'
+import { readDuoDisplay, assertDuoDisplayUnchanged, type DuoDisplay } from './duo-display.js'
 
 /** One available simulator device as reported by `simctl list devices`. */
 export interface SimulatorDevice {
@@ -16,6 +17,7 @@ export interface SimulatorDevice {
   /** Runtime identifier, e.g. `com.apple.CoreSimulator.SimRuntime.iOS-26-4`. */
   runtime: string
   state: string
+  deviceTypeIdentifier?: string
 }
 
 /** Error raised when an `xcrun simctl` invocation fails. */
@@ -70,6 +72,7 @@ interface SimctlDeviceEntry {
   name: string
   state: string
   isAvailable?: boolean
+  deviceTypeIdentifier?: string
 }
 
 /** True when simctl reports the device is already in the wanted boot state. */
@@ -81,8 +84,8 @@ function alreadyInState(stderr: string, state: 'Booted' | 'Shutdown'): boolean {
  * List every *available* simulator device as `{ udid, name, runtime, state }`.
  * Unavailable devices (mismatched runtime, corrupt, …) are skipped.
  */
-export async function listDevices(): Promise<SimulatorDevice[]> {
-  const stdout = await execSimctl(['list', 'devices', '--json'], SIMCTL_LIST_TIMEOUT_MS)
+export async function listDevices(signal?: AbortSignal): Promise<SimulatorDevice[]> {
+  const stdout = await execSimctl(['list', 'devices', '--json'], SIMCTL_LIST_TIMEOUT_MS, signal)
   let parsed: unknown
   try {
     parsed = JSON.parse(stdout)
@@ -107,7 +110,8 @@ export async function listDevices(): Promise<SimulatorDevice[]> {
       const device = entry as unknown as SimctlDeviceEntry
       if (device.isAvailable !== true) continue
       if (typeof device.udid !== 'string' || typeof device.name !== 'string' || typeof device.state !== 'string') continue
-      devices.push({ udid: device.udid, name: device.name, runtime, state: device.state })
+      devices.push({ udid: device.udid, name: device.name, runtime, state: device.state,
+        ...(typeof device.deviceTypeIdentifier === 'string' ? { deviceTypeIdentifier: device.deviceTypeIdentifier } : {}) })
     }
   }
   return devices
@@ -174,7 +178,16 @@ export async function getDevice(reference: string): Promise<SimulatorDevice> {
 }
 
 /** Capture the device screen into `filePath` (`simctl io <udid> screenshot`). */
-export async function takeScreenshot(udid: string, filePath: string, signal?: AbortSignal): Promise<void> {
+export async function takeScreenshot(udid: string, filePath: string, signal?: AbortSignal,
+  context?: { device: SimulatorDevice; display?: DuoDisplay }): Promise<void> {
+  const device = context?.device ?? await getDevice(udid)
+  if (device.udid !== udid) throw new SimctlError('screenshot device context does not match target', '')
+  const display = context?.display ?? await readDuoDisplay(device, signal)
+  if (display !== undefined) {
+    await execSimctl(['io', udid, 'screenshot', `--display=${display.name}`, filePath], SIMCTL_SCREENSHOT_TIMEOUT_MS, signal)
+    await assertDuoDisplayUnchanged(device, display, signal)
+    return
+  }
   await execSimctl(['io', udid, 'screenshot', filePath], SIMCTL_SCREENSHOT_TIMEOUT_MS, signal)
 }
 
