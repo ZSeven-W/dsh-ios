@@ -391,6 +391,96 @@ export function execAxe(
   })
 }
 
+/**
+ * Default HID priming window, in milliseconds, wrapped around every simulator
+ * tap. Xcode 27's `dtuhidd` only activates its virtual touch services once a
+ * peer session exists and silently drops events addressed to a service that is
+ * not active yet ("No active service, dropping event"). A one-shot `axe tap`
+ * opens the session, writes the gesture into that activation gap and exits, so
+ * the tap is reported as successful but never reaches the guest
+ * (cameroncooke/AXe#71). Running the tap inside one `axe batch` session with a
+ * sleep before (activation) and after (drain) lands it reliably.
+ */
+export const AXE_TAP_PRIME_MS_DEFAULT = 500
+
+/** Upper bound for the `DSHPLUGIN_IOS_AXE_TAP_PRIME_MS` override. */
+const AXE_TAP_PRIME_MS_MAX = 5_000
+
+/**
+ * Resolve the priming window: `DSHPLUGIN_IOS_AXE_TAP_PRIME_MS` (integer ms,
+ * 0..5000; `0` restores the plain one-shot `axe tap`), else the default.
+ * @returns the priming window in milliseconds.
+ */
+export function axeTapPrimeMs(): number {
+  const raw = pluginEnv('IOS_AXE_TAP_PRIME_MS')
+  if (raw === undefined || raw.trim() === '') return AXE_TAP_PRIME_MS_DEFAULT
+  const value = Number(raw)
+  if (!Number.isInteger(value) || value < 0 || value > AXE_TAP_PRIME_MS_MAX) return AXE_TAP_PRIME_MS_DEFAULT
+  return value
+}
+
+/**
+ * AXe argv for one simulator tap at device points.
+ * @param x - X in device points.
+ * @param y - Y in device points.
+ * @param udid - simulator udid.
+ * @param primeMs - priming window; 0 emits the plain one-shot `tap`.
+ * @returns the argv for `execAxe`.
+ */
+export function axeTapArgs(x: number, y: number, udid: string, primeMs = axeTapPrimeMs()): string[] {
+  if (primeMs <= 0) return ['tap', '-x', String(x), '-y', String(y), '--udid', udid]
+  const seconds = (primeMs / 1000).toFixed(3)
+  return [
+    'batch', '--udid', udid,
+    '--step', `sleep ${seconds}`,
+    '--step', `tap -x ${String(x)} -y ${String(y)}`,
+    '--step', `sleep ${seconds}`,
+  ]
+}
+
+/**
+ * Tap a simulator at device points through one primed AXe session.
+ * @param binary - resolved AXe binary.
+ * @param x - X in device points.
+ * @param y - Y in device points.
+ * @param udid - simulator udid.
+ * @param signal - optional abort signal.
+ */
+export async function axeTap(binary: AxeBinary, x: number, y: number, udid: string, signal?: AbortSignal): Promise<void> {
+  await execAxe(binary, axeTapArgs(x, y, udid), 60_000, signal)
+}
+
+/**
+ * Tap a simulator at NORMALIZED 0..1 coordinates through AXe: resolves (or
+ * installs) AXe, reads the screen size in points from the accessibility tree,
+ * and taps the scaled point. Replaces serve-sim's `tap`, whose HID injection
+ * also exits 0 without delivering on Xcode 27 simulators.
+ * @param udid - simulator udid.
+ * @param nx - normalized X (0..1).
+ * @param ny - normalized Y (0..1).
+ * @param signal - optional abort signal.
+ * @returns the tapped point in device points.
+ */
+export async function axeTapNormalized(udid: string, nx: number, ny: number, signal?: AbortSignal): Promise<{ x: number; y: number }> {
+  const resolved = resolveAxeBinary()
+  const binary = resolved.available ? resolved : await ensureAxeBinary()
+  if (!binary.available || binary.command === undefined) {
+    throw new Error(`axe is unavailable${binary.reason === undefined ? '' : ` (${binary.reason})`}; ${binary.installHint}`)
+  }
+  const roots = await describeUi(binary, udid, signal)
+  let width = 0
+  let height = 0
+  for (const root of roots) {
+    width = Math.max(width, root.frame.x + root.frame.w)
+    height = Math.max(height, root.frame.y + root.frame.h)
+  }
+  if (width <= 0 || height <= 0) throw new Error('axe: the simulator screen size could not be read from the accessibility tree')
+  const x = Math.round(nx * width * 100) / 100
+  const y = Math.round(ny * height * 100) / 100
+  await axeTap(binary, x, y, udid, signal)
+  return { x, y }
+}
+
 function finiteNumber(value: unknown): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
   // Normalize NEGATIVE ZERO. AXe reports off-screen-left frames as `-0`, and

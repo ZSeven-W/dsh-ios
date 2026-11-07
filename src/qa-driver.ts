@@ -35,6 +35,7 @@ import {
 } from './devicectl.js'
 import type { AxeBinary, AxeElement } from './uitree-backend.js'
 import {
+  axeTap,
   describeUi,
   ensureAxeBinary,
   resolveAxeBinary,
@@ -814,7 +815,13 @@ class IosQaBackendImpl implements IosQaBackend {
           return this.#unsupported(kind, udid, 'tap', 'simulator.point-size.unavailable', 'the simulator point size could not be read from the accessibility tree')
         }
         await this.#withSimLease(udid, async () => {
-          await this.#sim.control(['tap', String(x / size.width), String(y / size.height), '-d', udid])
+          if (this.#ownsSim) {
+            // serve-sim's `tap` exits 0 without delivering on Xcode 27
+            // simulators; AXe in one primed session lands it.
+            await axeTap(await this.#axeTapBinary(), x, y, udid)
+          } else {
+            await this.#sim.control(['tap', String(x / size.width), String(y / size.height), '-d', udid])
+          }
         })
         return this.#ok(kind, udid, 'tap')
       }
@@ -1629,6 +1636,21 @@ class IosQaBackendImpl implements IosQaBackend {
     } finally {
       release()
     }
+  }
+
+  async #axeTapBinary(): Promise<AxeBinary> {
+    const resolver = this.#axeResolver
+    if (resolver !== undefined && typeof resolver !== 'function' && isAxeBinary(resolver) && resolver.available) return resolver
+    if (typeof resolver === 'function' && resolver.length === 0) {
+      const value = await (resolver as () => Promise<AxeBinary | AxeElement[]>)()
+      if (!Array.isArray(value) && isAxeBinary(value) && value.available) return value
+    }
+    const resolved = resolveAxeBinary()
+    const binary = resolved.available ? resolved : await ensureAxeBinary()
+    if (!binary.available || binary.command === undefined) {
+      throw new IosQaError(`AXe is unavailable${binary.reason === undefined ? '' : ` (${binary.reason})`}`, 'simulator.axe.unavailable')
+    }
+    return binary
   }
 
   async #simulatorPointSize(udid: string): Promise<{ width: number; height: number }> {

@@ -34,7 +34,7 @@ import type { SimHostController } from './sim-host.js'
 import {
   describeUi,
   ensureAxeBinary,
-  execAxe,
+  axeTap,
   type AxeElement,
 } from './uitree-backend.js'
 import {
@@ -548,7 +548,7 @@ export function createSimRowTools(host: SimHostController, options: SimRowToolsO
       } else {
         const binary = await requireAxeBinary('ios_sim_tap_row')
         try {
-          await execAxe(binary, ['tap', '-x', String(plan.tap.x), '-y', String(plan.tap.y), '--udid', target.device.udid], 60_000, exec.signal)
+          await axeTap(binary, plan.tap.x, plan.tap.y, target.device.udid, exec.signal)
         } catch (error) {
           throw new Error(`ios_sim_tap_row: AXe tap at (${plan.tap.x}, ${plan.tap.y}) failed: ${errorMessage(error)}`)
         }

@@ -56,7 +56,8 @@ import {
   AXE_INSTALL_HINT,
   describeUi,
   ensureAxeBinary,
-  execAxe,
+  axeTap,
+  axeTapNormalized,
   resolveAxeBinary,
   type AxeElement,
   type AxeBinary,
@@ -1374,7 +1375,7 @@ export function createSimUiTools(host: SimHostController, options: SimUiToolsOpt
       const { element } = resolveTapTarget(roots, selector, gate)
       const center = frameCenter(element.frame)
       try {
-        await execAxe(binary, ['tap', '-x', String(center.x), '-y', String(center.y), '--udid', target.device.udid], 60_000, exec.signal)
+        await axeTap(binary, center.x, center.y, target.device.udid, exec.signal)
       } catch (error) {
         throw new Error(`ios_sim_tap_element: AXe tap at (${center.x}, ${center.y}) failed: ${errorMessage(error)}`)
       }
@@ -2277,9 +2278,11 @@ export function createSimOcrTools(host: SimHostController, options: SimUiToolsOp
         y: losslessNumber(Math.round(normalizedCenter.y * 10_000) / 10_000),
       }
       try {
-        await host.control(['tap', '-d', status.device, String(tap.x), String(tap.y)])
+        // serve-sim's `tap` exits 0 without delivering on Xcode 27 simulators;
+        // AXe in one primed session lands it (see AXE_TAP_PRIME_MS_DEFAULT).
+        await axeTapNormalized(status.device, tap.x, tap.y, exec.signal)
       } catch (error) {
-        throw new Error(`ios_sim_tap_text: serve-sim tap at (${tap.x}, ${tap.y}) failed: ${errorMessage(error)}`)
+        throw new Error(`ios_sim_tap_text: AXe tap at normalized (${tap.x}, ${tap.y}) failed: ${errorMessage(error)}`)
       }
       await sleep(TAP_SETTLE_MS)
       const screenshot = await captureScreenshot(screenshots, status.device, exec.signal)

@@ -29,6 +29,7 @@ import {
 } from './app-switcher.js'
 import { runSimulatorDeviceAction, type DeviceAction } from './device-actions.js'
 import { takeScreenshot } from './simctl.js'
+import { axeTapNormalized } from './uitree-backend.js'
 import type { SimHostController, SimStreamInfo } from './sim-host.js'
 
 /** Which backend a stream source fronts. */
@@ -214,7 +215,9 @@ export class SimStreamSource implements StreamSource {
   readonly control: StreamControl = {
     tap: async (x, y) => {
       requireNormalized(x, y)
-      await this.#run(['tap', String(x), String(y)])
+      // serve-sim's `tap` exits 0 without delivering on Xcode 27 simulators;
+      // AXe in one primed session lands it (see AXE_TAP_PRIME_MS_DEFAULT).
+      await axeTapNormalized(this.#requireDevice(), x, y)
     },
     drag: async drag => {
       requireNormalized(drag.fromX, drag.fromY)

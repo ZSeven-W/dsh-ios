@@ -46,6 +46,7 @@ import {
   type SimScrollRequest,
 } from './sim-gesture.js'
 import type { SimHostController, SimStreamInfo } from './sim-host.js'
+import { axeTapNormalized } from './uitree-backend.js'
 import {
   bootDevice,
   bootedDevices,
@@ -1252,13 +1253,23 @@ export function createSimTools(host: SimHostController, options: SimToolsOptions
       assertSimulatorAvailable(host)
       const payloads = interactControlArgs(args)
       const device = await streamedDevice(host)
-      try {
-        // WP56: scrolls and drag paths ride the stream's WS control socket
-        // (~300 ms, reads as a flick); everything else, and every case with no
-        // live socket, stays on the serve-sim CLI.
-        await performSimInteract(host, device.udid, args, payloads)
-      } catch (error) {
-        throw new Error(`ios_sim_interact: serve-sim ${args.action} failed: ${errorMessage(error)}`)
+      if (args.action === 'tap') {
+        // serve-sim's `tap` exits 0 without delivering on Xcode 27 simulators;
+        // AXe in one primed session lands it (see AXE_TAP_PRIME_MS_DEFAULT).
+        try {
+          await axeTapNormalized(device.udid, args.x as number, args.y as number, exec.signal)
+        } catch (error) {
+          throw new Error(`ios_sim_interact: AXe tap failed: ${errorMessage(error)}`)
+        }
+      } else {
+        try {
+          // WP56: scrolls and drag paths ride the stream's WS control socket
+          // (~300 ms, reads as a flick); everything else, and every case with no
+          // live socket, stays on the serve-sim CLI.
+          await performSimInteract(host, device.udid, args, payloads)
+        } catch (error) {
+          throw new Error(`ios_sim_interact: serve-sim ${args.action} failed: ${errorMessage(error)}`)
+        }
       }
       await sleep(INTERACT_SETTLE_MS)
       const screenshot = await captureScreenshot(screenshots, device.udid, exec.signal)
