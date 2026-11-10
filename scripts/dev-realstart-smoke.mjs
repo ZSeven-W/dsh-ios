@@ -294,6 +294,28 @@ try {
     noOrigin.status === 403 && noOriginBody.ok === false && noOriginBody.code === 'forbidden',
     `HTTP ${noOrigin.status} code=${noOriginBody.code}`,
   )
+  {
+    const detachAuth = routes.attachRequestAuthentication(req => req.headers['x-test-dsh-auth'] === 'ok')
+    try {
+      const authedNoOrigin = await fetch(`${origin}${REAL_DEVICE_STATUS_ROUTE_PATH}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-test-dsh-auth': 'ok' },
+        body: JSON.stringify({ device: UDID }),
+      })
+      const crossSiteAuthed = await fetch(`${origin}${REAL_DEVICE_STATUS_ROUTE_PATH}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-test-dsh-auth': 'ok', 'sec-fetch-site': 'cross-site' },
+        body: JSON.stringify({ device: UDID }),
+      })
+      step(
+        'authenticated Desktop proxy requests without Origin are accepted while cross-site stays 403',
+        authedNoOrigin.status === 200 && crossSiteAuthed.status === 403,
+        `authed=${authedNoOrigin.status} crossSite=${crossSiteAuthed.status}`,
+      )
+    } finally {
+      detachAuth()
+    }
+  }
 
   const wrongMethod = await fetch(`${origin}${REAL_START_ROUTE_PATH}`, { method: 'GET', headers: { origin } })
   step('real-start rejects GET → 405', wrongMethod.status === 405 && wrongMethod.headers.get('allow') === 'POST', `HTTP ${wrongMethod.status}`)

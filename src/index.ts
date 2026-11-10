@@ -322,11 +322,13 @@ export {
   WS_ROUTE_PATH,
   installStreamRoutes,
   isLoopbackRemoteAddress,
+  isTrustedRequest,
   mountStreamRoutes,
   prepareStreamAccessKey,
   screenshotDir,
   stateRoot,
   type RealStartRecord,
+  type SimRequestAuthentication,
   type StreamRouteMount,
 } from './stream-routes.js'
 export * from './qa-driver.js'

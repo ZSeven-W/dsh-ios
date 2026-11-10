@@ -89,7 +89,7 @@
   "dshHostRuntime": {
     "server": {
       "requiredServices": ["tools"],
-      "optionalServices": ["skills", "webServer"],
+      "optionalServices": ["skills", "webServer", "connection"],
       "requiredPackages": {
         "@deepseek-ai/dsh-tools": "0.1.5-rc.1"
       }

@@ -442,11 +442,30 @@ function isLoopbackRequest(req: IncomingMessage): boolean {
   return authority !== undefined && isLoopbackHostname(authority.hostname)
 }
 
-/** Apply Fetch-Metadata/Origin checks; mutations require an Origin. */
-function isTrustedBrowserRequest(req: IncomingMessage, requireOrigin: boolean): boolean {
+/** Host-owned authentication for Desktop requests whose proxy omits Origin. */
+export type SimRequestAuthentication = (req: IncomingMessage) => boolean
+
+/** Apply Fetch-Metadata/Origin checks; mutations require an Origin or authenticated Desktop request. */
+function isTrustedBrowserRequest(
+  req: IncomingMessage,
+  requireOrigin: boolean,
+  authenticate?: SimRequestAuthentication,
+): boolean {
   if (req.headers['sec-fetch-site'] === 'cross-site') return false
   const origin = req.headers.origin
-  if (origin === undefined) return !requireOrigin
+  if (origin === undefined) {
+    if (!requireOrigin) return true
+    const site = req.headers['sec-fetch-site']
+    if (site !== undefined && site !== 'same-origin' && site !== 'none') return false
+    const authority = requestAuthority(req)
+    if (authority === undefined || !isLoopbackHostname(authority.hostname)) return false
+    if (req.socket?.localPort !== undefined && Number(authority.port || 80) !== req.socket.localPort) return false
+    try {
+      return authenticate !== undefined && authenticate(req) === true
+    } catch {
+      return false
+    }
+  }
   if (typeof origin !== 'string') return false
   const authority = requestAuthority(req)
   if (authority === undefined) return false
@@ -463,8 +482,12 @@ function isTrustedBrowserRequest(req: IncomingMessage, requireOrigin: boolean): 
  * The transport fence applied to every dsh-ios route (mirrors dsh-noema's
  * status route: loopback peer + loopback Host, plus Fetch-Metadata/Origin).
  */
-function isTrustedRequest(req: IncomingMessage, requireOrigin: boolean): boolean {
-  return isLoopbackRequest(req) && isTrustedBrowserRequest(req, requireOrigin)
+export function isTrustedRequest(
+  req: IncomingMessage,
+  requireOrigin: boolean,
+  authenticate?: SimRequestAuthentication,
+): boolean {
+  return isLoopbackRequest(req) && isTrustedBrowserRequest(req, requireOrigin, authenticate)
 }
 
 function isJsonRequest(req: IncomingMessage): boolean {
@@ -839,6 +862,7 @@ export interface StreamRoutesOptions {
  */
 export class StreamRoutes {
   #disposed = false
+  #requestAuthentication: SimRequestAuthentication | undefined
   /** Proxied MJPEG streams die after this long without upstream bytes. */
   readonly #streamStallTimeoutMs: number
   readonly #streamTeardowns = new Set<() => void>()
@@ -2016,8 +2040,16 @@ export class StreamRoutes {
     this.#realStarts.clear()
   }
 
+  /** Attach Host-owned authentication for Desktop requests whose proxy omits Origin. */
+  attachRequestAuthentication(authenticate: SimRequestAuthentication): () => void {
+    this.#requestAuthentication = authenticate
+    return () => {
+      if (this.#requestAuthentication === authenticate) this.#requestAuthentication = undefined
+    }
+  }
+
   #requireTrusted(req: IncomingMessage, requireOrigin = false): void {
-    if (!isTrustedRequest(req, requireOrigin)) {
+    if (!isTrustedRequest(req, requireOrigin, this.#requestAuthentication)) {
       throw new RouteError(403, 'the dsh-ios route requires a loopback trusted browser request', 'forbidden')
     }
   }
@@ -2198,6 +2230,11 @@ export function mountStreamRoutes(webServer: StreamRouteMount, routes: StreamRou
   }
 }
 
+/** Public Host authentication subset; optional on older or headless profiles. */
+type ConnectionContext = Context & {
+  connection: { requestRejection(req: IncomingMessage): number | undefined }
+}
+
 /**
  * Mount the stream routes on the optional `webServer` service. Uses
  * `ctx.inject` + `ctx.effect` so headless profiles (no webServer) still load,
@@ -2212,6 +2249,10 @@ export function installStreamRoutes(ctx: Context, simHost: SimHostController, wd
     const routes = new StreamRoutes(simHost, access, wda)
     const detach = access.attachRoute()
     const dispose = mountStreamRoutes(webServer, routes)
+    webCtx.inject(['connection'], connectionCtx => connectionCtx.effect(() => {
+      const connection = (connectionCtx as ConnectionContext).connection
+      return routes.attachRequestAuthentication(req => connection.requestRejection(req) === undefined)
+    }, 'dsh-ios: authenticated Desktop stream requests'))
     return () => {
       dispose()
       detach()
