@@ -410,7 +410,7 @@ export function apply(ctx: Context): () => Promise<void> {
         ? { udid: wdaStat.device, name: wdaStat.device, kind: 'physical' as const }
         : null
     return {
-      version: '0.1.0-rc.11',
+      version: '0.1.0-rc.12',
       online: simStat.running || wdaStat.running,
       streamedDevice,
       serveSimSource: simStat.serveSimSource,
