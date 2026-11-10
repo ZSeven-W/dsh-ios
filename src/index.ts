@@ -37,6 +37,7 @@ import { createSimPreviewTools, IOS_PREVIEW_TOOL_NAMES } from './tool-preview.js
 import { registerIosSkill } from './skill.js'
 import { installStreamRoutes } from './stream-routes.js'
 import { disposeDevicectlChildren } from './devicectl.js'
+import { registerIosPeer } from './peer-registry.js'
 
 export {
   SimHostController,
@@ -329,6 +330,18 @@ export {
   type StreamRouteMount,
 } from './stream-routes.js'
 export * from './qa-driver.js'
+export {
+  APPLE_PEER_SYMBOL,
+  readIosPeer,
+  readXcodePeer,
+  registerIosPeer,
+  registerXcodePeer,
+  type ApplePeerRegistry,
+  type IosPeerSnapshot,
+  type IosPeerStreamedDevice,
+  type XcodePeerSnapshot,
+  type XcodePeerWindow,
+} from './peer-registry.js'
 
 /** Stable plugin name (the loader entry id in cordis.patch.yml). */
 export const name = 'dsh-ios'
@@ -386,6 +399,22 @@ export function apply(ctx: Context): () => Promise<void> {
   wda.startKeepAlive()
 
   const disposers: Array<() => void | Promise<void>> = []
+  disposers.push(registerIosPeer(() => {
+    const simStat = host.status()
+    const wdaStat = wda.status()
+    const streamedDevice = simStat.running && simStat.device
+      ? { udid: simStat.device, name: simStat.device, kind: 'simulator' as const }
+      : wdaStat.running && wdaStat.device
+        ? { udid: wdaStat.device, name: wdaStat.device, kind: 'physical' as const }
+        : null
+    return {
+      version: '0.1.0-rc.10',
+      online: simStat.running || wdaStat.running,
+      streamedDevice,
+      serveSimSource: simStat.serveSimSource,
+      wdaAvailable: wdaStat.available,
+    }
+  }))
   // The bundled playbook: what the tool descriptions cannot say, because it
   // is about the workflow BETWEEN the tools. A host without the skill service
   // simply does not advertise it.

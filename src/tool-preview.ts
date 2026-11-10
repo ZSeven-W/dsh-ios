@@ -16,8 +16,9 @@ import {
   type ToolDefinition,
 } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from './json-value.js'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, extname, join, resolve } from 'node:path'
 import {
   PreviewHostController,
   type PreviewHostStatus,
@@ -26,6 +27,20 @@ import {
 } from './preview-host.js'
 import type { SimHostController } from './sim-host.js'
 import { matchesRealDevice } from './devicectl.js'
+import { readXcodePeer } from './peer-registry.js'
+
+function looksLikeXcodeProjectTarget(rawPath: string): boolean {
+  try {
+    const abs = resolve(rawPath)
+    const ext = extname(abs).toLowerCase()
+    if (ext === '.xcodeproj' || ext === '.xcworkspace') return true
+    const dir = existsSync(abs) && statSync(abs).isDirectory() ? abs : dirname(abs)
+    if (!existsSync(dir) || !statSync(dir).isDirectory()) return false
+    return readdirSync(dir).some(name => name.endsWith('.xcodeproj') || name.endsWith('.xcworkspace'))
+  } catch {
+    return false
+  }
+}
 
 /** Registered tool names, in registration order. */
 export const IOS_PREVIEW_TOOL_NAMES = ['ios_sim_preview'] as const
@@ -187,12 +202,25 @@ export function createSimPreviewTools(host: SimHostController, options: SimPrevi
       if (args.packagePath === undefined || args.packagePath.trim() === '') {
         throw new Error('ios_sim_preview: action "start" requires packagePath — an absolute path to a Swift package directory (contains Package.swift)')
       }
-      return controller.start({
-        packagePath: args.packagePath,
-        ...(args.udid === undefined ? {} : { udid: args.udid }),
-        ...(args.previewFilter === undefined ? {} : { previewFilter: args.previewFilter }),
-        signal: exec.signal,
-      })
+      try {
+        return await controller.start({
+          packagePath: args.packagePath,
+          ...(args.udid === undefined ? {} : { udid: args.udid }),
+          ...(args.previewFilter === undefined ? {} : { previewFilter: args.previewFilter }),
+          signal: exec.signal,
+        })
+      } catch (error) {
+        if (error instanceof Error && /Package\.swift/u.test(error.message) && looksLikeXcodeProjectTarget(args.packagePath)) {
+          const xcodePeer = readXcodePeer()
+          const peerHint = xcodePeer !== null
+            ? ' (`@zseven-w/dsh-xcode` is mounted — call `xcode_render_preview` directly)'
+            : ' (install `@zseven-w/dsh-xcode` for `xcode_render_preview`)'
+          throw new Error(
+            `${error.message} — detected an .xcodeproj/.xcworkspace target; \`ios_sim_preview\` hot-reloads Swift packages (Package.swift), so use \`xcode_render_preview\`${peerHint} for native Xcode #Preview snapshots or \`ios_sim_build_run\` to launch the full app in the simulator`,
+          )
+        }
+        throw error
+      }
     },
     presentCall: (args: SimPreviewArgs) => {
       if (args.action === 'status') return { card: 'generic', title: 'Preview session status', kind: 'execute' }

@@ -102,6 +102,12 @@ The loop is **observe once → act with an assertion → observe again only if t
 ## Choosing the device
 
 \`ios_sim_devices\` lists simulators and, under \`realDevices\`, USB-connected phones. Every ios_sim_* tool takes either kind of udid; the tools route simulator udids through simctl/serve-sim and physical udids through WebDriverAgent automatically.
+
+## Pairing with \`@zseven-w/dsh-xcode\`
+
+When \`@zseven-w/dsh-xcode\` (\`xcode_*\` tools over \`xcrun mcpbridge\`) is also mounted in the session:
+- **Reach for \`xcode_*\` for IDE & compiler work**: \`xcode_diagnostics\` with \`filePath\` checks a single edited Swift/ObjC file in \`< 1 s\` without a full build; \`xcode_build_test\` runs warm incremental scheme builds and XCTest / Swift Testing suites; \`xcode_render_preview\` renders \`#Preview\` inside \`.xcodeproj\` / \`.xcworkspace\` apps; \`xcode_search_docs\` queries local Apple Developer Documentation.
+- **Keep \`ios_sim_*\` for live device runtime & UI interaction**: simulator/USB-iPhone live video streaming, \`ios_sim_build_run\` app installation, accessibility trees (\`ios_sim_ui_tree\`, \`ios_sim_ui_rows\`), OCR taps (\`ios_sim_find_text\`, \`ios_sim_tap_text\`), runtime logs (\`ios_sim_logs\`), LLDB backtraces, and \`leaks\`.
 `
 
 /**
